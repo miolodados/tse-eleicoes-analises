@@ -1,0 +1,14 @@
+# Local data, staging, and exports (never commit raw TSE files, logs, or Parquets)
+data/
+*.jez
+*.zip
+*.parquet
+
+# Python / Virtualenv / Cache
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+.DS_Store
