@@ -1,0 +1,197 @@
+schema_version: "1.0"
+default_election_year: 2026
+supported_election_years: [2022, 2024, 2026]
+partition_policy:
+  allowed_keys: ["election_year", "turn", "uf"]
+  forbidden_keys: ["section_num", "urna_serial", "municipio_code", "raw_timestamp"]
+
+sources:
+  totalizacao_arquivos_transmitidos:
+    source_id: "totalizacao_arquivos_transmitidos"
+    title: "Arquivos Transmitidos para Totalização"
+    ckan_dataset_slug: "resultados-{election_year}-arquivos-transmitidos-para-totalizacao"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/arqtranstot/bu_imgbu_logjez_rdv_vscmr_{election_year}_{turn}t_{uf}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_bundle"
+    inner_artifacts: [".jez", ".bu", ".rdv", ".vscmr", ".imgbu"]
+    expected_encoding: "latin1"
+    delimiter: null
+    native_grain: "urna_transmission_package"
+    target_table: "fact_urna_event"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "section_num"]
+    expected_columns: []
+    filter_rules:
+      situacao: "Totalizado"
+    license_status: "open_documented"
+    license_notes: "Dados abertos do TSE para fins de transparência e pesquisa; restrito a pacotes com situação Totalizado e proibida exposição de texto livre ou identificadores pessoais."
+    redistribution_allowed: true
+
+  ecossistema_urna_log_docs:
+    source_id: "ecossistema_urna_log_docs"
+    title: "Log dos Aplicativos do Ecossistema da Urna — Documentação Técnica"
+    ckan_dataset_slug: "ecossistema-da-urna-log-dos-aplicativos"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/odsele/log_urna/formato_arquivos_log_urna_{election_year}.pdf"
+    supported_years: [2022, 2024, 2026]
+    file_format: "pdf_doc"
+    inner_artifacts: [".pdf"]
+    expected_encoding: "utf-8"
+    delimiter: "\t"
+    native_grain: "urna_log_event"
+    target_table: "fact_urna_event"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "section_num", "urna_serial", "file_seq"]
+    expected_columns: ["raw_timestamp", "log_level", "urna_serial", "application", "message_text", "mac_code"]
+    filter_rules:
+      allowlist_catalog: "configs/event_catalog.yml"
+    license_status: "open_documented"
+    license_notes: "Documentação técnica oficial do TSE sobre estrutura de linhas de log (.jez, logd.dat), rotação, contingência e eventos do aplicativo VOTA."
+    redistribution_allowed: true
+
+  resultados_boletim_urna:
+    source_id: "resultados_boletim_urna"
+    title: "Resultados — Boletim de Urna (BU) por UF e Turno"
+    ckan_dataset_slug: "resultados-{election_year}-boletim-de-urna"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/buweb/bweb_{turn}t_{uf}_{election_year}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_csv"
+    inner_artifacts: [".csv", ".pdf", ".sha512"]
+    expected_encoding: "latin1"
+    delimiter: ";"
+    native_grain: "bu_section_cargo_vote"
+    target_table: "fact_bu_record"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "section_num", "cargo_code", "votavel_num"]
+    expected_columns:
+      - "ANO_ELEICAO"
+      - "NR_TURNO"
+      - "SG_UF"
+      - "CD_MUNICIPIO"
+      - "NR_ZONA"
+      - "NR_SECAO"
+      - "CD_CARGO_PERGUNTA"
+      - "NR_VOTAVEL"
+      - "QT_VOTOS"
+      - "NR_URNA_EFETIVADA"
+    filter_rules:
+      situacao: "Totalizado"
+    license_status: "open_documented"
+    license_notes: "Dados abertos do Portal de Dados Abertos do TSE (Boletim de Urna em CSV com arquivos de hash SHA-512)."
+    redistribution_allowed: true
+
+  resultados_apuracao_secao:
+    source_id: "resultados_apuracao_secao"
+    title: "Resultados — Detalhe da Apuração e Votação por Seção Eleitoral"
+    ckan_dataset_slug: "resultados-{election_year}"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/odsele/detalhe_votacao_secao/detalhe_votacao_secao_{election_year}_{uf}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_csv"
+    inner_artifacts: [".csv", ".pdf"]
+    expected_encoding: "latin1"
+    delimiter: ";"
+    native_grain: "section_turn"
+    target_table: "fact_result_section"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "section_num", "cargo_code"]
+    expected_columns:
+      - "ANO_ELEICAO"
+      - "NR_TURNO"
+      - "SG_UF"
+      - "CD_MUNICIPIO"
+      - "NR_ZONA"
+      - "NR_SECAO"
+      - "CD_CARGO"
+      - "QT_APTOS"
+      - "QT_COMPARECIMENTO"
+      - "QT_ABSTENCOES"
+    filter_rules:
+      situacao: "Totalizado"
+    license_status: "open_documented"
+    license_notes: "Dados abertos do Portal de Dados Abertos do TSE (detalhe de apuração e votação por seção eleitoral)."
+    redistribution_allowed: true
+
+  eleitorado_perfil:
+    source_id: "eleitorado_perfil"
+    title: "Eleitorado — Perfil por Seção, Local de Votação, PCD e Transferência Temporária"
+    ckan_dataset_slug: "eleitorado-{election_year}"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/odsele/perfil_eleitor_secao/perfil_eleitor_secao_{election_year}_{uf}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_csv"
+    inner_artifacts: [".csv", ".pdf"]
+    expected_encoding: "latin1"
+    delimiter: ";"
+    native_grain: "municipality_zone_profile"
+    target_table: "fact_electorate_profile"
+    natural_keys: ["election_year", "uf", "municipio_code", "zone_num", "section_num", "gender_code", "age_group_code", "education_level_code"]
+    expected_columns:
+      - "ANO_ELEICAO"
+      - "SG_UF"
+      - "CD_MUNICIPIO"
+      - "NR_ZONA"
+      - "NR_SECAO"
+      - "CD_GENERO"
+      - "CD_FAIXA_ETARIA"
+      - "CD_GRAU_ESCOLARIDADE"
+      - "QT_ELEITORES_PERFIL"
+      - "QT_ELEITORES_BIOMETRIA"
+      - "QT_ELEITORES_DEFICIENCIA"
+    filter_rules: {}
+    license_status: "open_documented"
+    license_notes: "Dados estatísticos agregados de perfil do eleitorado do Portal de Dados Abertos do TSE."
+    redistribution_allowed: true
+
+  comparecimento_abstencao:
+    source_id: "comparecimento_abstencao"
+    title: "Comparecimento e Abstenção (Sistema ELO)"
+    ckan_dataset_slug: "comparecimento-e-abstencao-{election_year}"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/odsele/perfil_comparecimento_abstencao/perfil_comparecimento_abstencao_{election_year}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_csv"
+    inner_artifacts: [".csv", ".pdf"]
+    expected_encoding: "latin1"
+    delimiter: ";"
+    native_grain: "municipality_zone_profile"
+    target_table: "fact_turnout_profile"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "gender_code", "age_group_code", "education_level_code"]
+    expected_columns:
+      - "ANO_ELEICAO"
+      - "NR_TURNO"
+      - "SG_UF"
+      - "CD_MUNICIPIO"
+      - "NR_ZONA"
+      - "CD_GENERO"
+      - "CD_FAIXA_ETARIA"
+      - "CD_GRAU_ESCOLARIDADE"
+      - "QT_APTOS"
+      - "QT_COMPARECIMENTO"
+      - "QT_ABSTENCAO"
+    filter_rules: {}
+    license_status: "unspecified_no_license"
+    license_notes: "Página oficial do Portal de Dados Abertos do TSE (Sistema ELO) declara 'Nenhuma Licença Fornecida'. É estritamente proibido republicar ou redistribuir o dado bruto sem esclarecimento formal de licença."
+    redistribution_allowed: false
+
+  correspondencias_esperadas_efetivadas:
+    source_id: "correspondencias_esperadas_efetivadas"
+    title: "Correspondências Esperadas e Efetivadas (1º e 2º Turnos por UF)"
+    ckan_dataset_slug: "resultados-{election_year}-correspondencias-esperadas-e-efetivadas"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/corresp/corresp_{election_year}_{turn}t_{uf}.zip"
+    supported_years: [2022, 2024, 2026]
+    file_format: "zip_csv"
+    inner_artifacts: [".csv", ".pdf", ".sha512"]
+    expected_encoding: "latin1"
+    delimiter: ";"
+    native_grain: "urna_correspondence_turn"
+    target_table: "bridge_urna_section"
+    natural_keys: ["election_year", "turn", "uf", "municipio_code", "zone_num", "section_num", "urna_serial_expected", "urna_serial_effective"]
+    expected_columns:
+      - "ANO_ELEICAO"
+      - "NR_TURNO"
+      - "SG_UF"
+      - "CD_MUNICIPIO"
+      - "NR_ZONA"
+      - "NR_SECAO"
+      - "NR_URNA_ESPERADA"
+      - "NR_URNA_EFETIVADA"
+      - "CD_CARGA_1_URNA_ESPERADA"
+      - "CD_CARGA_1_URNA_EFETIVADA"
+    filter_rules:
+      situacao: "Totalizado"
+    license_status: "open_documented"
+    license_notes: "Dados abertos do TSE para auditoria de correspondência entre urnas esperadas e efetivadas por seção e turno."
+    redistribution_allowed: true
