@@ -1,0 +1,144 @@
+schema_version: "1.0"
+fallback_event_code: "UNKNOWN_EVENT"
+malformed_event_code: "MALFORMED_LINE"
+allowed_extractors:
+  - "biometric_attempt_num"
+
+required_event_codes:
+  - "LOGD_STARTED"
+  - "SECTION_OPENED"
+  - "VOTER_ENABLED"
+  - "BIOMETRIC_READ_ATTEMPT"
+  - "BIOMETRIC_RECOGNIZED"
+  - "BIOMETRIC_NOT_RECOGNIZED"
+  - "NO_BIOMETRIC_REGISTERED"
+  - "MANUAL_ENABLE_PATH"
+  - "INACTIVITY_TIMEOUT_45S"
+  - "INVALID_KEY_PRESSED"
+  - "CARGO_VOTE_RECORDED"
+  - "VOTER_VOTE_COMPUTED"
+  - "VOTING_SUSPENDED"
+  - "VOTING_RESUMED"
+  - "CONTINGENCY_EVENT"
+  - "SECTION_CLOSED"
+
+patterns:
+  - pattern_id: "logd_started_main"
+    event_code: "LOGD_STARTED"
+    applications: ["*"]
+    regex: "(?i)(?:in[ií]cio\\s+das\\s+opera[cç][oõ]es\\s+do\\s+logd|logd\\s+iniciado)"
+    extractors: {}
+    description: "Inicialização do serviço de log (logd) da urna eletrônica."
+
+  - pattern_id: "section_opened_main"
+    event_code: "SECTION_OPENED"
+    applications: ["VOTA", "GAP", "*"]
+    regex: "(?i)(?:urna\\s+pronta\\s+para\\s+receber\\s+votos|in[ií]cio\\s+da\\s+vota[cç][aã]o|vota[cç][aã]o\\s+iniciada|abertura\\s+da\\s+se[cç][aã]o|emiss[aã]o\\s+d[ae]\\s+zer[eé]sima)"
+    extractors: {}
+    description: "Abertura da seção eleitoral, emissão da Zerésima ou início da votação."
+
+  - pattern_id: "voter_enabled_main"
+    event_code: "VOTER_ENABLED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?=.*\\beleitor\\s+(?:foi\\s+)?habilitado\\b)(?!.*\\b(?:sem\\s+biometria|manual)\\b).*$"
+    extractors: {}
+    description: "Habilitação do eleitor para iniciar a sessão de votação."
+
+  - pattern_id: "biometric_read_attempt_numbered"
+    event_code: "BIOMETRIC_READ_ATTEMPT"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:tentativa\\s+de\\s+(?:reconhecimento|leitura|identifica[cç][aã]o)\\s+biom[eé]tric[oa]|solicita(?:ndo)?\\s+digital[.:;]?\\s*tentativa|n[uú]mero\\s+de\\s+tentativas\\s+de\\s+reconhecimento\\s+do\\s+dedo)\\s*(?:n[uúº°.]*\\s*)?[:=\\-]?\\s*[\\[\\(]?(?P<biometric_attempt_num>\\d{1,3})[\\]\\)]?(?:\\b|$))"
+    extractors:
+      biometric_attempt_num: "biometric_attempt_num"
+    description: "Tentativa numerada de leitura ou reconhecimento biométrico da digital do eleitor (incluindo formatos oficiais TSE 'Solicita digital. Tentativa [N]' e 'Número de tentativas de reconhecimento do dedo')."
+
+  - pattern_id: "biometric_read_attempt_generic"
+    event_code: "BIOMETRIC_READ_ATTEMPT"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:tentativa\\s+de\\s+(?:reconhecimento|leitura|identifica[cç][aã]o)\\s+biom[eé]tric[oa]|solicita(?:[cç][aã]o\\s+de)?\\s+(?:digital|biometria)(?:\\s+do\\s+eleitor)?|aguardando\\s+(?:leitura\\s+biom[eé]trica|digital\\s+do\\s+eleitor)|n[uú]mero\\s+de\\s+tentativas\\s+de\\s+reconhecimento\\s+do\\s+dedo))"
+    extractors: {}
+    description: "Solicitação ou tentativa de leitura biométrica do eleitor sem número explícito na mensagem."
+
+  - pattern_id: "biometric_not_recognized_main"
+    event_code: "BIOMETRIC_NOT_RECOGNIZED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?:digital|biometria|dedo)(?:\\s+do\\s+eleitor|\\s+capturad[oa])?\\s+n[aã]o\\s+(?:foi\\s+)?reconhecid[oa]|falha\\s+no\\s+reconhecimento\\s+biom[eé]trico|impress[aã]o\\s+digital\\s+n[aã]o\\s+confere))"
+    extractors: {}
+    description: "Falha ou não reconhecimento da impressão digital do eleitor na tentativa biométrica."
+
+  - pattern_id: "biometric_recognized_main"
+    event_code: "BIOMETRIC_RECOGNIZED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?<!n[aã]o\\s)(?<!n[aã]o\\sfoi\\s)\\b(?:biometria|digital|dedo)(?:\\s+do\\s+eleitor)?\\s+reconhecid[oa]\\b|reconhecimento\\s+biom[eé]trico\\s+(?:efetuado\\s+com\\s+sucesso|positivo|ok)|identifica[cç][aã]o\\s+biom[eé]trica\\s+positiva|eleitor\\s+identificado\\s+por\\s+biometria))"
+    extractors: {}
+    description: "Reconhecimento biométrico bem-sucedido da impressão digital do eleitor."
+
+  - pattern_id: "no_biometric_registered_main"
+    event_code: "NO_BIOMETRIC_REGISTERED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente)\\b))(?:.*(?:n[aã]o\\s+h[aá]\\s+biometria(?:\\s+cadastrada)?|eleitor\\s+(?:n[aã]o\\s+possui|sem)\\s+biometria(?:\\s+cadastrada)?|aus[eê]ncia\\s+de\\s+biometria\\s+no\\s+cadastro|habilita[cç][aã]o\\s+de\\s+eleitor\\s+sem\\s+biometria))"
+    extractors: {}
+    description: "Eleitor sem biometria cadastrada no banco de dados da seção."
+
+  - pattern_id: "manual_enable_path_main"
+    event_code: "MANUAL_ENABLE_PATH"
+    applications: ["VOTA", "*"]
+    regex: "(?i)(?:habilita[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|libera[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|eleitor\\s+habilitado\\s+(?:manualmente|sem\\s+biometria)|habilitado\\s+sem\\s+biometria\\s+ap[oó]s\\s+tentativas|identifica[cç][aã]o\\s+manual\\s+do\\s+eleitor|c[oó]digo\\s+de\\s+habilita[cç][aã]o\\s+digitado\\s+pelo\\s+mes[aá]rio)"
+    extractors: {}
+    description: "Habilitação manual pelo mesário após tentativas biométricas malsucedidas."
+
+  - pattern_id: "inactivity_timeout_45s_main"
+    event_code: "INACTIVITY_TIMEOUT_45S"
+    applications: ["VOTA", "*"]
+    regex: "(?i)(?:eleitor\\s+sem\\s+atividade\\s+por\\s+45\\s*s(?:egundos)?|sem\\s+atividade\\s+por\\s+45\\s*s(?:egundos)?|tempo\\s+limite\\s+de\\s+inatividade|timeout\\s+de\\s+inatividade|inatividade\\s+(?:de|por)\\s+45\\s*s(?:egundos)?|cancelamento\\s+por\\s+inatividade(?:\\s+de\\s+45\\s*s(?:egundos)?)?)"
+    extractors: {}
+    description: "Alerta ou cancelamento por inatividade de 45 segundos durante a sessão (incluindo formato oficial TSE 'Eleitor sem atividade por 45 segundos')."
+
+  - pattern_id: "invalid_key_pressed_main"
+    event_code: "INVALID_KEY_PRESSED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)(?:acionamento\\s+de\\s+)?tecla\\s+(?:indevida|inv[aá]lida)(?:\\s+pressionada)?"
+    extractors: {}
+    description: "Acionamento de tecla indevida ou inválida durante a habilitação ou votação."
+
+  - pattern_id: "cargo_vote_recorded_main"
+    event_code: "CARGO_VOTE_RECORDED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)(?:voto\\s+(?:confirmado|registrado)\\s+para\\b|confirma[cç][aã]o\\s+de\\s+voto\\s+no\\s+cargo)"
+    extractors: {}
+    description: "Confirmação de voto em um cargo individual sem identificação do votável (ex.: 'Voto confirmado para [...]')."
+
+  - pattern_id: "voter_vote_computed_main"
+    event_code: "VOTER_VOTE_COMPUTED"
+    applications: ["VOTA", "*"]
+    regex: "(?i)(?:o\\s+)?voto\\s+do\\s+eleitor\\s+(?:foi\\s+)?computado"
+    extractors: {}
+    description: "Conclusão e computação final do voto do eleitor na seção."
+
+  - pattern_id: "voting_suspended_main"
+    event_code: "VOTING_SUSPENDED"
+    applications: ["VOTA", "GAP", "*"]
+    regex: "(?i)(?:vota[cç][aã]o\\s+suspensa|suspens[aã]o\\s+(?:tempor[aá]ria\\s+|parcial\\s+|total\\s+)?da\\s+vota[cç][aã]o|eleitor\\s+suspenso\\s+pelo\\s+mes[aá]rio)"
+    extractors: {}
+    description: "Suspensão temporária, parcial ou total da votação na seção eleitoral."
+
+  - pattern_id: "voting_resumed_main"
+    event_code: "VOTING_RESUMED"
+    applications: ["VOTA", "GAP", "*"]
+    regex: "(?i)(?:vota[cç][aã]o\\s+retomada|retomada\\s+da\\s+vota[cç][aã]o)"
+    extractors: {}
+    description: "Retomada da votação após suspensão ou procedimento técnico."
+
+  - pattern_id: "contingency_event_main"
+    event_code: "CONTINGENCY_EVENT"
+    applications: ["VOTA", "GAP", "RED", "scue", "adm", "*"]
+    regex: "(?i)(?:modo\\s+de\\s+conting[eê]ncia|substitui[cç][aã]o\\s+de\\s+urna|recupera[cç][aã]o\\s+de\\s+dados\\s+de\\s+conting[eê]ncia|carga\\s+de\\s+conting[eê]ncia|in[ií]cio\\s+de\\s+conting[eê]ncia)"
+    extractors: {}
+    description: "Operação técnica de contingência, carga ou substituição de urna."
+
+  - pattern_id: "section_closed_main"
+    event_code: "SECTION_CLOSED"
+    applications: ["VOTA", "GAP", "RED", "*"]
+    regex: "(?i)(?:encerramento\\s+da\\s+(?:vota[cç][aã]o|se[cç][aã]o)|vota[cç][aã]o\\s+encerrada|se[cç][aã]o\\s+encerrada|emiss[aã]o\\s+do\\s+boletim\\s+de\\s+urna)"
+    extractors: {}
+    description: "Encerramento oficial da votação na seção eleitoral e emissão do BU."

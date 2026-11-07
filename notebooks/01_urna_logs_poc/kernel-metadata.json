@@ -1,0 +1,15 @@
+{
+  "id": "daniellmattos/tse-analysis-01-urna-logs-poc",
+  "title": "TSE Analysis 01 Urna Logs PoC",
+  "code_file": "01_urna_logs_poc.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

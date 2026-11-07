@@ -26,15 +26,39 @@ A unidade central de integração entre resultados eleitorais, perfil do eleitor
 ### 2.1. `fact_urna_event`
 - **Fonte Primária**: `totalizacao_arquivos_transmitidos` e `ecossistema_urna_log_docs`.
 - **Grão**: Evento técnico de log da urna (`urna_log_event`), preservando `file_seq` como ordem canônica de gravação.
-- **Colunas Principais**:
-  - `election_year` (`Int16`), `turn` (`Int8`), `uf` (`String`), `municipio_code` (`Int32`), `zone_num` (`Int16`), `section_num` (`Int32`)
-  - `urna_serial` (`String`): Número de série da urna eletrônica.
-  - `file_seq` (`Int64`): Sequencial monotônico de linha dentro do arquivo de log (ordem canônica).
-  - `raw_timestamp` (`Datetime`): Timestamp registrado na linha de log.
-  - `has_timestamp_regression` (`Boolean`): Indicador de regressão temporal em relação ao `file_seq` anterior.
-  - `application` (`String`): Aplicativo emissor do evento (ex.: `VOTA`, `GAP`, `RED`).
-  - `log_level` (`String`): Nível de severidade do evento (`INFO`, `WARN`, `ERRO`).
-  - `event_code` (`String`): Código padronizado na allowlist (`configs/event_catalog.yml`) ou `UNKNOWN_EVENT`.
+- **Colunas Principais (`FACT_URNA_EVENT_SCHEMA`)**:
+  - `election_year` (`Int16` / `int16`, `NOT NULL`), `turn` (`Int8` / `int8`, `NOT NULL`), `uf` (`String` / `string`, `NOT NULL`), `municipio_code` (`Int32` / `int32`, `NOT NULL`), `zone_num` (`Int16` / `int16`, `NOT NULL`), `section_num` (`Int32` / `int32`, `NOT NULL`)
+  - `urna_serial` (`String` / `string`, `NOT NULL`): Número de série da urna eletrônica.
+  - `file_seq` (`Int64` / `int64`, `NOT NULL`): Sequencial monotônico de linha dentro do arquivo de log (ordem canônica iniciada em `1`).
+  - `raw_timestamp` (`Datetime("us")` / `timestamp("us")`, `NULLABLE`): Timestamp registrado na linha de log (`NULL` em linhas malformadas).
+  - `has_timestamp_regression` (`Boolean` / `bool`, `NOT NULL`): Indicador de regressão temporal (`raw_timestamp < last_valid_timestamp`) sem reordenação de linhas.
+  - `application` (`String` / `string`, `NOT NULL`): Aplicativo emissor do evento (ex.: `VOTA`, `GAP`, `RED`, `scue`, `adm`).
+  - `log_level` (`String` / `string`, `NOT NULL`): Nível de severidade do evento (`INFO`, `WARN`, `ERRO`, `UNKNOWN`).
+  - `event_code` (`String` / `string`, `NOT NULL`): Código canônico na allowlist (`configs/event_catalog.yml`), `UNKNOWN_EVENT` ou `MALFORMED_LINE`.
+  - `biometric_attempt_num` (`Int8` / `int8`, `NULLABLE`): Número ordinal da tentativa de leitura biométrica (`1..127`) extraído de forma segura quando aplicável (`BIOMETRIC_READ_ATTEMPT`); `NULL` nos demais eventos.
+
+#### Catálogo Canônico de `event_code` (`configs/event_catalog.yml`)
+
+| `event_code` | Família Semântica | Descrição |
+|---|---|---|
+| `LOGD_STARTED` | Sistema / Log | Inicialização do serviço `logd` da urna eletrônica. |
+| `SECTION_OPENED` | Abertura | Emissão da Zerésima, abertura da seção ou urna pronta para receber votos. |
+| `VOTER_ENABLED` | Habilitação | Habilitação do eleitor pelo mesário para iniciar a sessão de votação. |
+| `BIOMETRIC_READ_ATTEMPT` | Biometria | Tentativa de leitura/reconhecimento biométrico (preenche `biometric_attempt_num` quando numerada). |
+| `BIOMETRIC_RECOGNIZED` | Biometria | Reconhecimento biométrico bem-sucedido da digital do eleitor. |
+| `BIOMETRIC_NOT_RECOGNIZED` | Biometria | Falha ou não reconhecimento da digital na tentativa biométrica. |
+| `NO_BIOMETRIC_REGISTERED` | Biometria / Cadastro | Eleitor sem biometria cadastrada no banco de dados da seção. |
+| `MANUAL_ENABLE_PATH` | Habilitação Manual | Liberação manual pelo mesário após esgotamento de tentativas biométricas. |
+| `INACTIVITY_TIMEOUT_45S` | Interação / Timeout | Alerta ou cancelamento por inatividade de 45 segundos na sessão de votação. |
+| `INVALID_KEY_PRESSED` | Interação / Teclado | Acionamento de tecla indevida/inválida durante habilitação ou votação. |
+| `CARGO_VOTE_RECORDED` | Votação | Confirmação de voto em um cargo individual (sem identificar o votável). |
+| `VOTER_VOTE_COMPUTED` | Votação | Conclusão e computação final do voto do eleitor (`O voto do eleitor foi computado`). |
+| `VOTING_SUSPENDED` | Contingência / Operação | Suspensão temporária da votação na seção. |
+| `VOTING_RESUMED` | Contingência / Operação | Retomada da votação após suspensão ou procedimento técnico. |
+| `CONTINGENCY_EVENT` | Contingência / Hardware | Operação de modo de contingência, carga ou substituição de urna. |
+| `SECTION_CLOSED` | Encerramento | Encerramento da votação na seção eleitoral e emissão do Boletim de Urna. |
+| `UNKNOWN_EVENT` | Sanitização (Allowlist) | Linha estruturalmente válida cuja mensagem não consta na allowlist (texto descartado). |
+| `MALFORMED_LINE` | Resiliência Estrutural | Linha fisicamente truncada ou corrompida (texto descartado, `raw_timestamp = NULL`). |
 
 ### 2.2. `fact_voting_session`
 - **Fonte Derivada**: Reconstruída via máquina de estados sobre `fact_urna_event` (Fase 2).
