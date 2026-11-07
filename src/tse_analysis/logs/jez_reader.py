@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import io
 import re
+import struct
 import zipfile
+import zlib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, BinaryIO
 
+import httpx
 import py7zr
 import py7zr.io
 
@@ -31,7 +34,10 @@ _ROTATED_DOT_RE = re.compile(r"^logd\.dat\.(\d+)(?:\.(?:jez|zip|7z))?$", re.IGNO
 _ROTATED_PREFIX_RE = re.compile(r"^logd?[_.-]?(\d+)(?:\.dat)?(?:\.(?:jez|zip|7z))?$", re.IGNORECASE)
 _CURRENT_LOG_RE = re.compile(r"^logd\.dat$", re.IGNORECASE)
 _NESTED_ARCHIVE_SUFFIXES: frozenset[str] = frozenset({".jez", ".zip", ".7z"})
-_TSE_FILENAME_RE = re.compile(r"(?:^|[-_/])(\d{5})(\d{4})(\d{4})\.jez$", re.IGNORECASE)
+_TSE_FILENAME_RE = re.compile(
+    r"(?:^|[-_/]|o\d{5}(?P<uf_prefix>[a-z]{2}))(?P<mun>\d{5})(?P<zone>\d{4})(?P<sec>\d{4})(?:[-_][a-z0-9]+)?\.jez$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,17 +131,18 @@ def parse_section_keys_from_filename(
     uf: str = "BR",
     situacao: str = "Totalizado",
 ) -> SectionTurnContext | None:
-    """Extrai (municipio_code, zone_num, section_num) do padrão TSE 'o00407-MMMMMZZZZSSSS.jez'."""
+    """Extrai chaves de seção de 'o00407-MMMMMZZZZSSSS.jez' ou 'o03220acMMMMMZZZZSSSS-log.jez'."""
     match = _TSE_FILENAME_RE.search(Path(filename).name)
     if match is None:
         return None
+    inferred_uf = match.group("uf_prefix") or uf
     return SectionTurnContext(
         election_year=election_year,
         turn=turn,
-        uf=uf.strip().upper(),
-        municipio_code=int(match.group(1)),
-        zone_num=int(match.group(2)),
-        section_num=int(match.group(3)),
+        uf=inferred_uf.strip().upper(),
+        municipio_code=int(match.group("mun")),
+        zone_num=int(match.group("zone")),
+        section_num=int(match.group("sec")),
         situacao=situacao,
     )
 
@@ -535,3 +542,93 @@ def extract_section_bundle_events(
         has_contingency_indicator=has_contingency,
         events=tuple(all_events),
     )
+
+
+def fetch_remote_jez_by_range(
+    zip_url: str,
+    *,
+    jez_index: int = 0,
+    timeout: float = 30.0,
+    client: httpx.Client | None = None,
+) -> tuple[str, bytes]:
+    """Baixa apenas um único arquivo .jez de um pacote ZIP remoto do TSE via HTTP Range.
+
+    Lê o Central Directory no final do ZIP (sem baixar centenas de megabytes) e extrai
+    em memória o membro .jez solicitado, retornando (member_filename, jez_bytes).
+    """
+    owns_client = client is None
+    http_client = (
+        client
+        if client is not None
+        else httpx.Client(timeout=timeout, follow_redirects=True)
+    )
+    try:
+        head_resp = http_client.head(zip_url)
+        head_resp.raise_for_status()
+        total_size = int(head_resp.headers["content-length"])
+        tail_len = min(total_size, 2 * 1024 * 1024)
+        tail_resp = http_client.get(
+            zip_url,
+            headers={"Range": f"bytes={total_size - tail_len}-{total_size - 1}"},
+        )
+        tail_resp.raise_for_status()
+        tail_bytes = tail_resp.content
+
+        eocd_pos = tail_bytes.rfind(b"PK\x05\x06")
+        if eocd_pos < 0:
+            raise ValueError("Assinatura EOCD (PK\\x05\\x06) não encontrada no ZIP remoto.")
+        cd_size, cd_offset = struct.unpack(
+            "<II", tail_bytes[eocd_pos + 12 : eocd_pos + 20]
+        )
+
+        cd_resp = http_client.get(
+            zip_url,
+            headers={"Range": f"bytes={cd_offset}-{cd_offset + cd_size - 1}"},
+        )
+        cd_resp.raise_for_status()
+        cd_bytes = cd_resp.content
+
+        pos = 0
+        found_jez: list[tuple[str, int, int, int]] = []
+        while pos + 46 <= len(cd_bytes):
+            if cd_bytes[pos : pos + 4] != b"PK\x01\x02":
+                break
+            comp_method = struct.unpack("<H", cd_bytes[pos + 10 : pos + 12])[0]
+            comp_size, _, fn_len, extra_len, comment_len = struct.unpack(
+                "<IIHHH", cd_bytes[pos + 20 : pos + 34]
+            )
+            local_hdr_offset = struct.unpack("<I", cd_bytes[pos + 42 : pos + 46])[0]
+            fname = cd_bytes[pos + 46 : pos + 46 + fn_len].decode("latin1")
+            pos += 46 + fn_len + extra_len + comment_len
+            if fname.lower().endswith(".jez"):
+                found_jez.append((fname, comp_method, comp_size, local_hdr_offset))
+                if len(found_jez) > jez_index:
+                    break
+
+        if len(found_jez) <= jez_index:
+            raise FileNotFoundError(
+                f"Índice .jez {jez_index} não encontrado no pacote remoto {zip_url}."
+            )
+
+        target_name, comp_method, comp_size, lhoff = found_jez[jez_index]
+        end_byte = lhoff + 30 + len(target_name) + 256 + comp_size
+        entry_resp = http_client.get(
+            zip_url,
+            headers={"Range": f"bytes={lhoff}-{end_byte}"},
+        )
+        entry_resp.raise_for_status()
+        raw_entry = entry_resp.content
+        fn_l, ex_l = struct.unpack("<HH", raw_entry[26:30])
+        data_start = 30 + fn_l + ex_l
+        comp_data = raw_entry[data_start : data_start + comp_size]
+        if comp_method == 8:
+            jez_bytes = zlib.decompress(comp_data, -zlib.MAX_WBITS)
+        elif comp_method == 0:
+            jez_bytes = comp_data
+        else:
+            raise ValueError(f"Método de compressão ZIP não suportado: {comp_method}")
+
+        return target_name, jez_bytes
+    finally:
+        if owns_client:
+            http_client.close()

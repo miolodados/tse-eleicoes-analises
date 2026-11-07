@@ -23,6 +23,7 @@ from tse_analysis.logs.jez_reader import (
     detect_jez_container_format,
     extract_jez_events,
     extract_section_bundle_events,
+    fetch_remote_jez_by_range,
     parse_section_keys_from_filename,
     read_jez_log_lines,
     read_jez_member_bytes,
@@ -34,6 +35,7 @@ from tse_analysis.logs.line_parser import (
     iter_parsed_log_lines,
     parse_log_line,
     parse_log_lines,
+    sanitize_raw_log_line_for_preview,
 )
 from tse_analysis.logs.materializer import (
     FACT_URNA_EVENT_ARROW_SCHEMA,
@@ -74,6 +76,7 @@ __all__ = [
     "events_to_pyarrow",
     "extract_jez_events",
     "extract_section_bundle_events",
+    "fetch_remote_jez_by_range",
     "iter_parsed_log_lines",
     "load_event_catalog",
     "parse_log_line",
@@ -82,6 +85,7 @@ __all__ = [
     "process_uf_staging_batch",
     "read_jez_log_lines",
     "read_jez_member_bytes",
+    "sanitize_raw_log_line_for_preview",
     "sort_log_member_names",
     "write_fact_urna_event_partition",
 ]

@@ -33,7 +33,7 @@ Quando um recurso para determinado `election_year` (ex.: `2026` antes da publica
 
 ### 3.1. `totalizacao_arquivos_transmitidos`
 - **Slug CKAN**: `resultados-{election_year}-arquivos-transmitidos-para-totalizacao`
-- **Template de URL**: `https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/arqtranstot/bu_imgbu_logjez_rdv_vscmr_{election_year}_{turn}t_{uf}.zip`
+- **Template de URL**: `https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/arqurnatot/bu_imgbu_logjez_rdv_vscmr_{election_year}_{turn}t_{uf}.zip`
 - **Artefatos Internos**: `.jez` (logs comprimidos SevenZip/LZMA contendo `logd.dat`), `.bu`, `.rdv`, `.vscmr`, `.imgbu`.
 - **Grão Nativo**: `urna_transmission_package` (eventos internos em `urna_log_event`).
 - **Tabela Alvo**: `fact_urna_event` (alimentando `fact_voting_session` e `agg_voting_session_metrics`).

@@ -18,7 +18,7 @@ _HEX_MAC_RE = re.compile(r"^[0-9A-Fa-f]{6,64}$")
 _DATE_ONLY_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 _TIME_ONLY_RE = re.compile(r"^\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?$")
 _KNOWN_LEVELS: frozenset[str] = frozenset(
-    {"INFO", "WARN", "WARNING", "ERRO", "ERROR", "DEBUG", "FATAL", "CRIT"}
+    {"INFO", "WARN", "WARNING", "ALERTA", "ERRO", "ERROR", "DEBUG", "FATAL", "CRIT"}
 )
 
 
@@ -76,6 +76,20 @@ def decode_log_line(raw_line: bytes | str) -> str:
     except UnicodeDecodeError:
         decoded = raw_line.decode("latin1")
     return decoded.rstrip("\r\n")
+
+
+def sanitize_raw_log_line_for_preview(raw_line: bytes | str) -> str:
+    """Sanitiza uma linha de log para inspeção (head/tail), mascarando MAC e IDs numéricos."""
+    decoded = decode_log_line(raw_line)
+    parts = decoded.split("\t")
+    if len(parts) >= 2 and _HEX_MAC_RE.fullmatch(parts[-1].strip()):
+        parts[-1] = "<MAC_REDACTED>"
+    # Mascara números de 5+ dígitos no campo de mensagem para evitar exposição de título/mesário
+    if len(parts) >= 5:
+        msg_idx = 4 if len(parts) == 6 else (5 if len(parts) >= 7 else len(parts) - 1)
+        if 0 <= msg_idx < len(parts):
+            parts[msg_idx] = re.sub(r"\b\d{5,}\b", "<ID_REDACTED>", parts[msg_idx])
+    return "\t".join(parts)
 
 
 def _parse_timestamp(ts_str: str) -> datetime | None:
