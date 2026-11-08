@@ -27,7 +27,7 @@ def catalog(repo_root: Path) -> SourceCatalog:
 @pytest.fixture()
 def latin1_csv_file(tmp_path: Path) -> Path:
     """Cria um CSV sintético codificado em ISO-8859-1 (latin1) no padrão TSE."""
-    csv_path = tmp_path / "bweb_1t_AC_2026.csv"
+    csv_path = tmp_path / "bweb_1t_AC_051020261403.csv"
     header = (
         '"ANO_ELEICAO";"NR_TURNO";"SG_UF";"CD_MUNICIPIO";"NR_ZONA";'
         '"NR_SECAO";"CD_CARGO_PERGUNTA";"NR_VOTAVEL";"QT_VOTOS";'
@@ -44,12 +44,12 @@ def latin1_csv_file(tmp_path: Path) -> Path:
 @pytest.fixture()
 def utf8_csv_file(tmp_path: Path) -> Path:
     """Cria um CSV sintético codificado em UTF-8."""
-    csv_path = tmp_path / "detalhe_votacao_secao_2026_SP.csv"
+    csv_path = tmp_path / "votacao_secao_2026_SP.csv"
     header = (
         '"ANO_ELEICAO";"NR_TURNO";"SG_UF";"CD_MUNICIPIO";"NR_ZONA";'
-        '"NR_SECAO";"CD_CARGO";"QT_APTOS";"QT_COMPARECIMENTO";"QT_ABSTENCOES"\n'
+        '"NR_SECAO";"CD_CARGO";"NR_VOTAVEL";"QT_VOTOS"\n'
     )
-    row = f'"2026";"1";"SP";"71072";"0001";"0001";"1";"400";"320";"80";"{SENSITIVE_ROW_SENTINEL}"\n'
+    row = f'"2026";"1";"SP";"71072";"0001";"0001";"1";"13";"320";"{SENSITIVE_ROW_SENTINEL}"\n'
     csv_path.write_bytes((header + row).encode("utf-8"))
     return csv_path
 
@@ -57,10 +57,10 @@ def utf8_csv_file(tmp_path: Path) -> Path:
 @pytest.fixture()
 def zip_with_latin1_csv(tmp_path: Path, latin1_csv_file: Path) -> Path:
     """Cria um pacote ZIP contendo um CSV em Latin-1 e um arquivo de hash .sha512."""
-    zip_path = tmp_path / "bweb_1t_AC_2026.zip"
+    zip_path = tmp_path / "bweb_1t_AC_051020261403.zip"
     with zipfile.ZipFile(zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("bweb_1t_AC_2026.csv", latin1_csv_file.read_bytes())
-        zf.writestr("bweb_1t_AC_2026.sha512", b"deadbeef  bweb_1t_AC_2026.csv\n")
+        zf.writestr("bweb_1t_AC_051020261403.csv", latin1_csv_file.read_bytes())
+        zf.writestr("bweb_1t_AC_051020261403.sha512", b"deadbeef  bweb_1t_AC_051020261403.csv\n")
         zf.writestr("leiame_boletim_urna.pdf", b"%PDF-1.4 synthetic doc")
     return zip_path
 
