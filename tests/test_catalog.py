@@ -210,10 +210,10 @@ def test_adversarial_real_log_ecossistema_pdf_url_present_across_catalog_and_doc
         assert real_pdf_url in content, f"URL real {real_pdf_url} ausente em {rel_path}"
 
 
-def test_adversarial_no_bronze_prefix_and_decisions_a1_b1_c1_d_enforced(
+def test_adversarial_no_bronze_prefix_and_schema_policies_enforced(
     repo_root: Path, catalog: SourceCatalog
 ) -> None:
-    """Garante ausência do prefixo bronze_ e conformidade estrita com as Decisões A1, B1, C1 e D."""
+    """Garante ausência do prefixo bronze_ e conformidade estrita dos schemas 1:1."""
     for source_id, entry in catalog.sources.items():
         assert not entry.target_table.startswith("bronze_"), (
             f"target_table '{entry.target_table}' de '{source_id}' não pode ter prefixo bronze_"
@@ -229,7 +229,7 @@ def test_adversarial_no_bronze_prefix_and_decisions_a1_b1_c1_d_enforced(
         text = path.read_text(encoding="utf-8")
         assert "bronze_" not in text, f"Prefixo proibido 'bronze_' encontrado em {path}"
 
-    # Decisão A1: fact_urna_logs mantém message_text (IDs 5+ dígitos mascarados) e sem mac_code
+    # fact_urna_logs mantém message_text (IDs 5+ dígitos mascarados) e sem mac_code
     log_doc_entry = catalog.get("ecossistema_urna_log_docs")
     tot_entry = catalog.get("totalizacao_arquivos_transmitidos")
     assert log_doc_entry.target_table == "fact_urna_logs"
@@ -244,7 +244,7 @@ def test_adversarial_no_bronze_prefix_and_decisions_a1_b1_c1_d_enforced(
     assert "<ID_REDACTED>" in dictionary_doc
     assert "<ID_REDACTED>" in notebook_text
 
-    # Decisão D: comparecimento_abstencao (redistribution_allowed: true)
+    # comparecimento_abstencao (redistribution_allowed: true)
     elo_entry = catalog.get("comparecimento_abstencao")
     assert elo_entry.target_table == "fact_comparecimento_abstencao"
     assert elo_entry.redistribution_allowed is True

@@ -3,9 +3,9 @@
 Este documento descreve os contratos de dados das tabelas do projeto `tse-analysis` para as **Eleições 2026**.
 
 Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **Parquet ZSTD particionado** (`election_year=2026/turn={1,2}/uf={UF}`), com validação de integridade física (hashes `.sha512`, contagem exata de linhas e tipos nativos):
-- **Decisão A1 (`fact_urna_logs`):** Mantém `message_text` (mascarando números de identificação de mesário/eleitor com 5+ dígitos para `<ID_REDACTED>`) e omite `mac_code` (economizando ~35 GB de entropia hexadecimal aleatória para caber com folga no Kaggle Dataset público).
-- **Decisões B1 e C1 (Tabelas Tabulares e Dimensões):** Mantêm 100% dos arquivos e colunas originais dos CSVs de 2026 do TSE (aproveitando o *dictionary encoding* nativo do Parquet ZSTD para comprimir strings repetidas).
-- **Decisão D (`fact_comparecimento_abstencao`):** Incorporada normalmente ao dataset público no schema 1:1 (`redistribution_allowed: true`), tratando a ausência de `license_id` no CKAN como omissão formal do portal.
+- **Logs da Urna (`fact_urna_logs`):** Preserva a estrutura tabulada original de `logd.dat` mantendo `message_text` (com números de identificação de mesário/eleitor de 5+ dígitos mascarados como `<ID_REDACTED>`) e omitindo o campo final de código de autenticação hexadecimal (`mac_code`), o que evita ~35 GB de entropia aleatória incompressível e permite altíssima compressão por dicionário em Parquet ZSTD para publicação no Kaggle.
+- **Tabelas Tabulares e Dimensões:** Mantêm 100% dos arquivos e colunas originais dos CSVs de 2026 do TSE, aproveitando o *dictionary encoding* nativo do Parquet ZSTD para comprimir colunas descritivas repetidas sem perda de fidelidade à fonte.
+- **Comparecimento e Abstenção (`fact_comparecimento_abstencao`):** Incorporada integralmente ao dataset público no schema 1:1 (`redistribution_allowed: true`), considerando a ausência de `license_id` no metadado CKAN como omissão formal do portal para dados públicos abertos do TSE.
 
 ---
 
@@ -27,7 +27,7 @@ Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **P
 ### 2.1. `fact_urna_logs`
 - **Fonte Primária:** `totalizacao_arquivos_transmitidos` (`https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_{turn}t_{uf}.zip` $\rightarrow$ arquivos `o<pleito:5><uf:2><mun:5><zona:4><secao:4>-log.jez` $\rightarrow$ `logd.dat` e segmentos rotacionados) e `ecossistema_urna_log_docs` (`https://www.tse.jus.br/eleicoes/eleicoes-2026-content/arquivos/log-do-ecossistema/@@display-file/file/log-do-ecossistema.pdf`).
 - **Grão:** Linha física do arquivo de log da urna (`urna_log_event`), ordenada por `file_seq`.
-- **Schema (`15 colunas` — Decisão A1):**
+- **Schema (`15 colunas`):**
   - `election_year` (`Int16`): Ano da eleição (`2026`).
   - `turn` (`Int8`): Turno (`1` ou `2`).
   - `uf` (`String`): UF (`AC`..`TO`, `ZZ`).
@@ -42,7 +42,7 @@ Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **P
   - `log_level` (`String`): Nível de severidade original do 2º campo tabulado (`INFO`, `ALERTA`, `ERRO`, `DEBUG`).
   - `urna_serial` (`String`): Número de série da urna do 3º campo tabulado (ex.: `"02263093"`).
   - `application` (`String`): Aplicativo emissor do 4º campo tabulado (`LOGD`, `SCUE`, `VOTA`, `GAP`, `RED`, etc.).
-  - `message_text` (`String`): Mensagem original do 5º campo tabulado de `logd.dat` (com números de 5+ dígitos mascarados como `<ID_REDACTED>` para proteção de privacidade e máxima compressão por dicionário no Parquet ZSTD; o 6º campo `mac_code` é omitido na persistência conforme Decisão A1).
+  - `message_text` (`String`): Mensagem original do 5º campo tabulado de `logd.dat` (com números de 5+ dígitos mascarados como `<ID_REDACTED>` para proteção de privacidade e máxima compressão por dicionário no Parquet ZSTD; o 6º campo `mac_code` é omitido na persistência para eliminar entropia hexadecimal aleatória).
 
 ### 2.2. `fact_boletim_urna`
 - **Fonte Primária:** `resultados_boletim_urna` (`buweb/bweb_{turn}t_{uf}_<DDMMYYYYHHMM>.zip`, validado contra o respectivo `.sha512`).
@@ -52,7 +52,7 @@ Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **P
 
 ### 2.3. `fact_votacao_secao`, `fact_detalhe_votacao_secao`, `dim_candidato_munzona` e `dim_partido_munzona`
 - **Fonte Primária:** `resultados_apuracao_secao` (`resultados-2026`).
-- **Tabelas 1:1 dos CSVs de 2026 (Decisões B1 e C1):**
+- **Tabelas 1:1 dos CSVs de 2026:**
   1. `fact_votacao_secao` (`votacao_secao_2026_{uf}.zip`, 26 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `CD_TIPO_ELEICAO`, `NM_TIPO_ELEICAO`, `NR_TURNO`, `CD_ELEICAO`, `DS_ELEICAO`, `DT_ELEICAO`, `TP_ABRANGENCIA`, `SG_UF`, `SG_UE`, `NM_UE`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `CD_CARGO`, `DS_CARGO`, `NR_VOTAVEL`, `NM_VOTAVEL`, `QT_VOTOS`, `NR_LOCAL_VOTACAO`, `SQ_CANDIDATO`, `NM_LOCAL_VOTACAO`, `DS_LOCAL_VOTACAO_ENDERECO`.
   2. `fact_detalhe_votacao_secao` (`detalhe_votacao_secao_2026.zip`, 37 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `CD_TIPO_ELEICAO`, `NM_TIPO_ELEICAO`, `NR_TURNO`, `CD_ELEICAO`, `DS_ELEICAO`, `DT_ELEICAO`, `TP_ABRANGENCIA`, `SG_UF`, `SG_UE`, `NM_UE`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `CD_CARGO`, `DS_CARGO`, `QT_APTOS`, `QT_COMPARECIMENTO`, `QT_ABSTENCOES`, `QT_VOTOS_NOMINAIS`, `QT_VOTOS_BRANCOS`, `QT_VOTOS_NULOS`, `QT_VOTOS_LEGENDA`, `QT_VOTOS_ANULADOS_APU_SEP`, `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO`, `DS_LOCAL_VOTACAO_ENDERECO`, `DT_RECEBIMENTO_BU_HOR_TSE`, `DT_PRIM_TOT_PARCIAL_HOR_TSE`, `DS_ORIGEM_VOTO`, `ST_SECAO_INSTALADA`, `ST_SECAO_ANULADA`, `CD_MODELO_URNA`, `DS_MODELO_URNA`.
   3. `fact_detalhe_votacao_munzona` (`detalhe_votacao_munzona_2026.zip`, 47 colunas).
@@ -60,14 +60,14 @@ Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **P
 
 ### 2.4. `fact_eleitorado_perfil_secao`, `dim_local_votacao_secao`, `fact_eleitorado_deficiencia` e `fact_transferencia_temporaria_secao`
 - **Fonte Primária:** `eleitorado_perfil` (`eleitorado-2026`).
-- **Tabelas 1:1 dos CSVs de 2026 (Decisões B1 e C1):**
+- **Tabelas 1:1 dos CSVs de 2026:**
   1. `fact_eleitorado_perfil_secao` (`perfil_eleitor_secao_2026_{uf}.zip`, 30 colunas): `DT_GERACAO`, `HH_GERACAO`, `AA_ELEICAO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO`, `CD_GENERO`, `DS_GENERO`, `CD_ESTADO_CIVIL`, `DS_ESTADO_CIVIL`, `CD_FAIXA_ETARIA`, `DS_FAIXA_ETARIA`, `CD_GRAU_ESCOLARIDADE`, `DS_GRAU_ESCOLARIDADE`, `CD_RACA_COR`, `DS_RACA_COR`, `CD_IDENTIDADE_GENERO`, `DS_IDENTIDADE_GENERO`, `CD_QUILOMBOLA`, `DS_QUILOMBOLA`, `CD_INTERPRETE_LIBRAS`, `DS_INTERPRETE_LIBRAS`, `QT_ELEITORES`, `QT_ELEITORES_BIOMETRIA`, `QT_ELEITORES_DEFICIENCIA`, `QT_ELEITORES_NOME_SOCIAL`.
   2. `fact_eleitorado_perfil_munzona` (`perfil_eleitorado_2026.zip`, 27 colunas).
   3. `dim_local_votacao_secao` (`eleitorado_local_votacao_2026.zip`, 41 colunas): cadastro geográfico completo de seções e locais de votação (`DS_ENDERECO`, `NM_BAIRRO`, `NR_CEP`, `NR_LATITUDE`, `NR_LONGITUDE`, `CD_TIPO_SECAO_AGREGADA`, `NR_SECAO_PRINCIPAL`, `QT_ELEITOR_SECAO`, etc.).
   4. `fact_eleitorado_deficiencia` (`perfil_eleitor_deficiencia_2026.zip`, 30 colunas) e `fact_transferencia_temporaria_secao` (`transf_temporaria_secao_2026.zip`, 17 colunas) / `fact_transferencia_temporaria_mun` (`transferencia_temporaria_2026.zip`, 13 colunas).
 
 ### 2.5. `fact_comparecimento_abstencao`, `fact_comparecimento_abstencao_pcd` e `fact_comparecimento_abstencao_tte`
-- **Fonte Primária:** `comparecimento_abstencao` (`comparecimento-e-abstencao-2026` — Sistema ELO, incorporado ao dataset público com schema 1:1 conforme Decisão D).
+- **Fonte Primária:** `comparecimento_abstencao` (`comparecimento-e-abstencao-2026` — Sistema ELO, incorporado ao dataset público com schema 1:1).
 - **Tabelas 1:1 dos CSVs de 2026:**
   1. `fact_comparecimento_abstencao` (`perfil_comparecimento_abstencao_2026.zip`, 45 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `NR_TURNO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `CD_GENERO`, `DS_GENERO`, `CD_ESTADO_CIVIL`, `DS_ESTADO_CIVIL`, `CD_FAIXA_ETARIA`, `DS_FAIXA_ETARIA`, `CD_GRAU_INSTRUCAO`, `DS_GRAU_INSTRUCAO`, `CD_COR_RACA`, `DS_COR_RACA`, `CD_QUILOMBOLA`, `DS_QUILOMBOLA`, `CD_INTERPRETE_LIBRAS`, `DS_INTERPRETE_LIBRAS`, `CD_IDENTIDADE_GENERO`, `DS_IDENTIDADE_GENERO`, `CD_IDIOMA_INDIGENA`, `DS_IDIOMA_INDIGENA`, `CD_GRUPO_INDIGENA`, `DS_GRUPO_INDIGENA`, `CD_IDIOMA_QUILOMBOLA`, `DS_IDIOMA_QUILOMBOLA`, `QT_APTOS`, `QT_COMPARECIMENTO`, `QT_ABSTENCAO`, `QT_COMPARECIMENTO_DEFICIENCIA`, `QT_ABSTENCAO_DEFICIENCIA`, `QT_COMPARECIMENTO_TTE`, `QT_ABSTENCAO_TTE`, `QT_COMPAREC_FACULTATIVO`, `QT_ABST_FACULTATIVO`, `QT_COMPAREC_OBRIGATORIO`, `QT_ABST_OBRIGATORIO`, `QT_COMPAREC_DEFIC_FACULTATIVO`, `QT_ABST_DEFIC_FACULTATIVO`, `QT_COMPAREC_DEFIC_OBRIGATORIO`, `QT_ABST_DEFIC_OBRIGATORIO`.
   2. `fact_comparecimento_abstencao_pcd` (`perfil_comparecimento_abstencao_eleitor_deficiente_2026.zip`, 20 colunas).
