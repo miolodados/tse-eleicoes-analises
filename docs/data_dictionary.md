@@ -1,135 +1,88 @@
-# Dicionário de Dados e Contratos Analíticos (`data_dictionary`)
+# Dicionário de Dados — Schemas 1:1 das Fontes Reais 2026 (`data_dictionary`)
 
-Este documento descreve a unidade central de análise (`section_turn`), os contratos de tipos em PyArrow/Polars, os schemas preliminares das tabelas analíticas e dimensões do projeto `tse-analysis`, a política de armazenamento Parquet ZSTD e os guardrails obrigatórios de privacidade e minimização.
+Este documento descreve os contratos de dados das tabelas do projeto `tse-analysis` para as **Eleições 2026**.
 
----
-
-## 1. Unidade Central de Análise (`section_turn`)
-
-A unidade central de integração entre resultados eleitorais, perfil do eleitorado, correspondências de urna e métricas agregadas de sessão é a **seção eleitoral por turno** (`section_turn`), parametrizada por `election_year` (padrão `2026`, suportando `2022` e `2024`).
-
-### Contrato Canônico de Chaves (`SECTION_TURN_KEY_SCHEMA`)
-
-| Coluna | Tipo PyArrow / Polars | Nulabilidade | Origem Física TSE | Descrição |
-|---|---|---|---|---|
-| `election_year` | `int16` / `Int16` | `NOT NULL` | `ANO_ELEICAO` | Ano da eleição (`2026`, `2024`, `2022`). |
-| `turn` | `int8` / `Int8` | `NOT NULL` | `NR_TURNO` | Número do turno (`1` ou `2`). |
-| `uf` | `string` / `String` | `NOT NULL` | `SG_UF` | Sigla da Unidade Federativa (`AC`..`TO`, `BR`, `ZZ`). |
-| `municipio_code` | `int32` / `Int32` | `NOT NULL` | `CD_MUNICIPIO` | Código TSE do município. |
-| `zone_num` | `int16` / `Int16` | `NOT NULL` | `NR_ZONA` | Número da zona eleitoral. |
-| `section_num` | `int32` / `Int32` | `NOT NULL` | `NR_SECAO` | Número da seção eleitoral. |
+Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **Parquet ZSTD particionado** (`election_year=2026/turn={1,2}/uf={UF}`), com validação de integridade física (hashes `.sha512`, contagem exata de linhas e tipos nativos):
+- **Decisão A1 (`fact_urna_logs`):** Mantém `message_text` (mascarando números de identificação de mesário/eleitor com 5+ dígitos para `<ID_REDACTED>`) e omite `mac_code` (economizando ~35 GB de entropia hexadecimal aleatória para caber com folga no Kaggle Dataset público).
+- **Decisões B1 e C1 (Tabelas Tabulares e Dimensões):** Mantêm 100% dos arquivos e colunas originais dos CSVs de 2026 do TSE (aproveitando o *dictionary encoding* nativo do Parquet ZSTD para comprimir strings repetidas).
+- **Decisão D (`fact_comparecimento_abstencao`):** Incorporada normalmente ao dataset público no schema 1:1 (`redistribution_allowed: true`), tratando a ausência de `license_id` no CKAN como omissão formal do portal.
 
 ---
 
-## 2. Tabelas Fato e Agregadas (Modelo Analítico)
+## 1. Chaves Naturais de Contexto (`SECTION_TURN_KEY_SCHEMA`)
 
-### 2.1. `fact_urna_event`
-- **Fonte Primária**: `totalizacao_arquivos_transmitidos` e `ecossistema_urna_log_docs`.
-- **Grão**: Evento técnico de log da urna (`urna_log_event`), preservando `file_seq` como ordem canônica de gravação.
-- **Colunas Principais (`FACT_URNA_EVENT_SCHEMA`)**:
-  - `election_year` (`Int16` / `int16`, `NOT NULL`), `turn` (`Int8` / `int8`, `NOT NULL`), `uf` (`String` / `string`, `NOT NULL`), `municipio_code` (`Int32` / `int32`, `NOT NULL`), `zone_num` (`Int16` / `int16`, `NOT NULL`), `section_num` (`Int32` / `int32`, `NOT NULL`)
-  - `urna_serial` (`String` / `string`, `NOT NULL`): Número de série da urna eletrônica.
-  - `file_seq` (`Int64` / `int64`, `NOT NULL`): Sequencial monotônico de linha dentro do arquivo de log (ordem canônica iniciada em `1`).
-  - `raw_timestamp` (`Datetime("us")` / `timestamp("us")`, `NULLABLE`): Timestamp registrado na linha de log (`NULL` em linhas malformadas).
-  - `has_timestamp_regression` (`Boolean` / `bool`, `NOT NULL`): Indicador de regressão temporal (`raw_timestamp < last_valid_timestamp`) sem reordenação de linhas.
-  - `application` (`String` / `string`, `NOT NULL`): Aplicativo emissor do evento (ex.: `VOTA`, `GAP`, `RED`, `scue`, `adm`).
-  - `log_level` (`String` / `string`, `NOT NULL`): Nível de severidade do evento (`INFO`, `WARN`, `ERRO`, `UNKNOWN`).
-  - `event_code` (`String` / `string`, `NOT NULL`): Código canônico na allowlist (`configs/event_catalog.yml`), `UNKNOWN_EVENT` ou `MALFORMED_LINE`.
-  - `biometric_attempt_num` (`Int8` / `int8`, `NULLABLE`): Número ordinal da tentativa de leitura biométrica (`1..127`) extraído de forma segura quando aplicável (`BIOMETRIC_READ_ATTEMPT`); `NULL` nos demais eventos.
-
-#### Catálogo Canônico de `event_code` (`configs/event_catalog.yml`)
-
-| `event_code` | Família Semântica | Descrição |
-|---|---|---|
-| `LOGD_STARTED` | Sistema / Log | Inicialização do serviço `logd` da urna eletrônica. |
-| `SECTION_OPENED` | Abertura | Emissão da Zerésima, abertura da seção ou urna pronta para receber votos. |
-| `VOTER_ENABLED` | Habilitação | Habilitação do eleitor pelo mesário para iniciar a sessão de votação. |
-| `BIOMETRIC_READ_ATTEMPT` | Biometria | Tentativa de leitura/reconhecimento biométrico (preenche `biometric_attempt_num` quando numerada). |
-| `BIOMETRIC_RECOGNIZED` | Biometria | Reconhecimento biométrico bem-sucedido da digital do eleitor. |
-| `BIOMETRIC_NOT_RECOGNIZED` | Biometria | Falha ou não reconhecimento da digital na tentativa biométrica. |
-| `NO_BIOMETRIC_REGISTERED` | Biometria / Cadastro | Eleitor sem biometria cadastrada no banco de dados da seção. |
-| `MANUAL_ENABLE_PATH` | Habilitação Manual | Liberação manual pelo mesário após esgotamento de tentativas biométricas. |
-| `INACTIVITY_TIMEOUT_45S` | Interação / Timeout | Alerta ou cancelamento por inatividade de 45 segundos na sessão de votação. |
-| `INVALID_KEY_PRESSED` | Interação / Teclado | Acionamento de tecla indevida/inválida durante habilitação ou votação. |
-| `CARGO_VOTE_RECORDED` | Votação | Confirmação de voto em um cargo individual (sem identificar o votável). |
-| `VOTER_VOTE_COMPUTED` | Votação | Conclusão e computação final do voto do eleitor (`O voto do eleitor foi computado`). |
-| `VOTING_SUSPENDED` | Contingência / Operação | Suspensão temporária da votação na seção. |
-| `VOTING_RESUMED` | Contingência / Operação | Retomada da votação após suspensão ou procedimento técnico. |
-| `CONTINGENCY_EVENT` | Contingência / Hardware | Operação de modo de contingência, carga ou substituição de urna. |
-| `SECTION_CLOSED` | Encerramento | Encerramento da votação na seção eleitoral e emissão do Boletim de Urna. |
-| `UNKNOWN_EVENT` | Sanitização (Allowlist) | Linha estruturalmente válida cuja mensagem não consta na allowlist (texto descartado). |
-| `MALFORMED_LINE` | Resiliência Estrutural | Linha fisicamente truncada ou corrompida (texto descartado, `raw_timestamp = NULL`). |
-
-### 2.2. `fact_voting_session`
-- **Fonte Derivada**: Reconstruída via máquina de estados sobre `fact_urna_event` (Fase 2).
-- **Grão**: Sessão individual de votação (`Eleitor foi habilitado` $\rightarrow$ `O voto do eleitor foi computado`).
-- **Colunas Principais**:
-  - Chaves de `section_turn` + `urna_serial` (`String`) + `session_seq` (`Int32`)
-  - `start_file_seq` (`Int64`), `end_file_seq` (`Int64`)
-  - `start_timestamp` (`Datetime`), `end_timestamp` (`Datetime`), `duration_seconds` (`Float64`)
-  - `auth_modality` (`String`): Classificação em `biometric_recognized`, `no_biometric_registered`, `biometric_not_recognized_manual_path` ou `unknown`.
-  - `biometric_attempts` (`Int8`): Contagem de tentativas biométricas na sessão.
-  - `session_status` (`String`): Status de fechamento da sessão técnica (`COMPLETED`, `INTERRUPTED`, `CONTINGENCY`).
-
-### 2.3. `agg_voting_session_metrics`
-- **Fonte Derivada**: Agregação de `fact_voting_session` (Fase 4).
-- **Grão**: `urna_serial` $\times$ `section_turn` $\times$ `auth_modality` $\times$ `time_window_15m`.
-- **Colunas Principais**:
-  - Chaves de `section_turn`, `urna_serial` (`String`), `auth_modality` (`String`), `time_window_start` (`Datetime`)
-  - `session_count` (`Int32`), `duration_mean_sec` (`Float64`), `duration_p50_sec` (`Float64`), `duration_p90_sec` (`Float64`).
-
-### 2.4. `fact_bu_record`
-- **Fonte Primária**: `resultados_boletim_urna`.
-- **Grão**: `bu_section_cargo_vote` (Seção $\times$ Turno $\times$ Cargo $\times$ Votável no Boletim de Urna).
-- **Colunas Principais**:
-  - Chaves de `section_turn`, `urna_serial_effective` (`String`), `cargo_code` (`Int16`), `votavel_num` (`Int32`), `vote_count` (`Int32`).
-
-### 2.5. `fact_result_section`
-- **Fonte Primária**: `resultados_apuracao_secao`.
-- **Grão**: `section_turn` $\times$ `cargo_code`.
-- **Colunas Principais**:
-  - Chaves de `section_turn`, `cargo_code` (`Int16`), `eligible_voters_count` (`Int32`), `turnout_count` (`Int32`), `abstention_count` (`Int32`), `nominal_votes_count` (`Int32`), `blank_votes_count` (`Int32`), `null_votes_count` (`Int32`).
-
-### 2.6. `fact_electorate_profile`
-- **Fonte Primária**: `eleitorado_perfil`.
-- **Grão**: `municipality_zone_profile` (Seção/Zona $\times$ Faixa Etária $\times$ Gênero $\times$ Escolaridade).
-- **Colunas Principais**:
-  - `election_year` (`Int16`), `uf` (`String`), `municipio_code` (`Int32`), `zone_num` (`Int16`), `section_num` (`Int32`), `gender_code` (`Int8`), `age_group_code` (`Int16`), `education_level_code` (`Int8`), `voters_profile_count` (`Int32`), `biometric_voters_count` (`Int32`), `pcd_voters_count` (`Int32`).
-
-### 2.7. `fact_turnout_profile`
-- **Fonte Primária**: `comparecimento_abstencao` (Sistema ELO — sujeito a `redistribution_allowed: false` para dado bruto).
-- **Grão**: `municipality_zone_profile` por turno.
-- **Colunas Principais**:
-  - `election_year` (`Int16`), `turn` (`Int8`), `uf` (`String`), `municipio_code` (`Int32`), `zone_num` (`Int16`), `gender_code` (`Int8`), `age_group_code` (`Int16`), `education_level_code` (`Int8`), `eligible_count` (`Int32`), `turnout_count` (`Int32`), `abstention_count` (`Int32`).
-
-### 2.8. `bridge_urna_section`
-- **Fonte Primária**: `correspondencias_esperadas_efetivadas`.
-- **Grão**: `urna_correspondence_turn` (Seção $\times$ Turno $\times$ Urna Esperada vs. Efetivada).
-- **Colunas Principais**:
-  - Chaves de `section_turn`, `urna_serial_expected` (`String`), `urna_serial_effective` (`String`), `carga_code_expected` (`String`), `carga_code_effective` (`String`), `is_contingency_replacement` (`Boolean`).
+| Coluna Lógica | Coluna Original TSE | Tipo PyArrow / Polars | Descrição |
+|---|---|---|---|
+| `election_year` | `ANO_ELEICAO` / `AA_ELEICAO` | `int16` / `Int16` | Ano da eleição (`2026`). |
+| `turn` | `NR_TURNO` | `int8` / `Int8` | Número do turno (`1` ou `2`). |
+| `uf` | `SG_UF` | `string` / `String` | Sigla da Unidade Federativa (`AC`..`TO`, `BR`, `ZZ`). |
+| `municipio_code` | `CD_MUNICIPIO` | `int32` / `Int32` | Código TSE do município (5 dígitos). |
+| `zone_num` | `NR_ZONA` | `int16` / `Int16` | Número da zona eleitoral (4 dígitos). |
+| `section_num` | `NR_SECAO` | `int32` / `Int32` | Número da seção eleitoral (4 dígitos). |
 
 ---
 
-## 3. Tabelas de Dimensão (`Dimensions`)
+## 2. Tabelas Fato, Pontes e Dimensões (Schemas 1:1 Inferidos dos Arquivos Reais de 2026)
 
-- `dim_geography`: Hierarquia geográfica da Justiça Eleitoral (`uf`, `municipio_code`, `municipio_name`, `regiao`).
-- `dim_section`: Cadastro de zonas, seções e locais de votação (`election_year`, `uf`, `municipio_code`, `zone_num`, `section_num`, `local_votacao_num`, `is_aggregated_section`).
-- `dim_time`: Janelas temporais do dia da eleição (`time_window_15m`, `hour_of_day`, `period_of_day`).
-- `dim_candidate`: Candidaturas e cargos por pleito (`election_year`, `turn`, `uf`, `cargo_code`, `votavel_num`, `party_num`).
-- `dim_party`: Partidos políticos, federações e coligações (`election_year`, `party_num`, `party_sigla`, `federation_num`).
+### 2.1. `fact_urna_logs`
+- **Fonte Primária:** `totalizacao_arquivos_transmitidos` (`https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/arqurnatot/bu_imgbu_logjez_rdv_vscmr_2026_{turn}t_{uf}.zip` $\rightarrow$ arquivos `o<pleito:5><uf:2><mun:5><zona:4><secao:4>-log.jez` $\rightarrow$ `logd.dat` e segmentos rotacionados) e `ecossistema_urna_log_docs` (`https://www.tse.jus.br/eleicoes/eleicoes-2026-content/arquivos/log-do-ecossistema/@@display-file/file/log-do-ecossistema.pdf`).
+- **Grão:** Linha física do arquivo de log da urna (`urna_log_event`), ordenada por `file_seq`.
+- **Schema (`15 colunas` — Decisão A1):**
+  - `election_year` (`Int16`): Ano da eleição (`2026`).
+  - `turn` (`Int8`): Turno (`1` ou `2`).
+  - `uf` (`String`): UF (`AC`..`TO`, `ZZ`).
+  - `cd_pleito` (`Int32`): Código do pleito extraído do nome do `.jez` (ex.: `3220` no 1º turno de 2026).
+  - `cd_municipio` (`Int32`): Código TSE do município extraído do nome do `.jez` (ex.: `1015`).
+  - `nr_zona` (`Int16`): Zona eleitoral extraída do nome do `.jez` (ex.: `2`).
+  - `nr_secao` (`Int32`): Seção eleitoral extraída do nome do `.jez` (ex.: `88`).
+  - `source_jez_file` (`String`): Nome do arquivo `.jez` de origem dentro do pacote da UF.
+  - `source_log_member` (`String`): Membro interno do `.jez` (`logd.dat`, `logd.dat.1`, etc.).
+  - `file_seq` (`Int64`): Número sequencial monotônico da linha dentro do arquivo `.jez` (`1..N`).
+  - `raw_timestamp` (`Datetime("us")`): Data e hora registradas no 1º campo tabulado de `logd.dat` (`DD/MM/YYYY HH:MM:SS`).
+  - `log_level` (`String`): Nível de severidade original do 2º campo tabulado (`INFO`, `ALERTA`, `ERRO`, `DEBUG`).
+  - `urna_serial` (`String`): Número de série da urna do 3º campo tabulado (ex.: `"02263093"`).
+  - `application` (`String`): Aplicativo emissor do 4º campo tabulado (`LOGD`, `SCUE`, `VOTA`, `GAP`, `RED`, etc.).
+  - `message_text` (`String`): Mensagem original do 5º campo tabulado de `logd.dat` (com números de 5+ dígitos mascarados como `<ID_REDACTED>` para proteção de privacidade e máxima compressão por dicionário no Parquet ZSTD; o 6º campo `mac_code` é omitido na persistência conforme Decisão A1).
+
+### 2.2. `fact_boletim_urna`
+- **Fonte Primária:** `resultados_boletim_urna` (`buweb/bweb_{turn}t_{uf}_<DDMMYYYYHHMM>.zip`, validado contra o respectivo `.sha512`).
+- **Grão:** `bu_section_cargo_vote` (Seção $\times$ Turno $\times$ Cargo/Pergunta $\times$ Votável).
+- **Schema 1:1 (45 colunas nativas do CSV de 2026):**
+  `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `CD_TIPO_ELEICAO`, `NM_TIPO_ELEICAO`, `CD_PLEITO`, `DT_PLEITO`, `NR_TURNO`, `CD_ELEICAO`, `DS_ELEICAO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `NR_LOCAL_VOTACAO`, `CD_CARGO_PERGUNTA`, `DS_CARGO_PERGUNTA`, `NR_PARTIDO`, `SG_PARTIDO`, `NM_PARTIDO`, `DT_BU_RECEBIDO`, `QT_APTOS`, `QT_COMPARECIMENTO`, `QT_ABSTENCOES`, `CD_TIPO_URNA`, `DS_TIPO_URNA`, `CD_TIPO_VOTAVEL`, `DS_TIPO_VOTAVEL`, `NR_VOTAVEL`, `NM_VOTAVEL`, `QT_VOTOS`, `NR_URNA_EFETIVADA`, `CD_CARGA_1_URNA_EFETIVADA`, `CD_CARGA_2_URNA_EFETIVADA`, `CD_FLASHCARD_URNA_EFETIVADA`, `DT_CARGA_URNA_EFETIVADA`, `DS_CARGO_PERGUNTA_SECAO`, `DS_SECOES_AGREGADAS`, `DT_ABERTURA`, `DT_ENCERRAMENTO`, `QT_ELEI_BIOM_SEM_HABILITACAO`, `DT_EMISSAO_BU`, `NR_JUNTA_APURADORA`, `NR_TURMA_APURADORA`.
+
+### 2.3. `fact_votacao_secao`, `fact_detalhe_votacao_secao`, `dim_candidato_munzona` e `dim_partido_munzona`
+- **Fonte Primária:** `resultados_apuracao_secao` (`resultados-2026`).
+- **Tabelas 1:1 dos CSVs de 2026 (Decisões B1 e C1):**
+  1. `fact_votacao_secao` (`votacao_secao_2026_{uf}.zip`, 26 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `CD_TIPO_ELEICAO`, `NM_TIPO_ELEICAO`, `NR_TURNO`, `CD_ELEICAO`, `DS_ELEICAO`, `DT_ELEICAO`, `TP_ABRANGENCIA`, `SG_UF`, `SG_UE`, `NM_UE`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `CD_CARGO`, `DS_CARGO`, `NR_VOTAVEL`, `NM_VOTAVEL`, `QT_VOTOS`, `NR_LOCAL_VOTACAO`, `SQ_CANDIDATO`, `NM_LOCAL_VOTACAO`, `DS_LOCAL_VOTACAO_ENDERECO`.
+  2. `fact_detalhe_votacao_secao` (`detalhe_votacao_secao_2026.zip`, 37 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `CD_TIPO_ELEICAO`, `NM_TIPO_ELEICAO`, `NR_TURNO`, `CD_ELEICAO`, `DS_ELEICAO`, `DT_ELEICAO`, `TP_ABRANGENCIA`, `SG_UF`, `SG_UE`, `NM_UE`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `CD_CARGO`, `DS_CARGO`, `QT_APTOS`, `QT_COMPARECIMENTO`, `QT_ABSTENCOES`, `QT_VOTOS_NOMINAIS`, `QT_VOTOS_BRANCOS`, `QT_VOTOS_NULOS`, `QT_VOTOS_LEGENDA`, `QT_VOTOS_ANULADOS_APU_SEP`, `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO`, `DS_LOCAL_VOTACAO_ENDERECO`, `DT_RECEBIMENTO_BU_HOR_TSE`, `DT_PRIM_TOT_PARCIAL_HOR_TSE`, `DS_ORIGEM_VOTO`, `ST_SECAO_INSTALADA`, `ST_SECAO_ANULADA`, `CD_MODELO_URNA`, `DS_MODELO_URNA`.
+  3. `fact_detalhe_votacao_munzona` (`detalhe_votacao_munzona_2026.zip`, 47 colunas).
+  4. `dim_candidato_munzona` (`votacao_candidato_munzona_2026.zip`, 50 colunas) e `dim_partido_munzona` (`votacao_partido_munzona_2026.zip`, 38 colunas).
+
+### 2.4. `fact_eleitorado_perfil_secao`, `dim_local_votacao_secao`, `fact_eleitorado_deficiencia` e `fact_transferencia_temporaria_secao`
+- **Fonte Primária:** `eleitorado_perfil` (`eleitorado-2026`).
+- **Tabelas 1:1 dos CSVs de 2026 (Decisões B1 e C1):**
+  1. `fact_eleitorado_perfil_secao` (`perfil_eleitor_secao_2026_{uf}.zip`, 30 colunas): `DT_GERACAO`, `HH_GERACAO`, `AA_ELEICAO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `NR_LOCAL_VOTACAO`, `NM_LOCAL_VOTACAO`, `CD_GENERO`, `DS_GENERO`, `CD_ESTADO_CIVIL`, `DS_ESTADO_CIVIL`, `CD_FAIXA_ETARIA`, `DS_FAIXA_ETARIA`, `CD_GRAU_ESCOLARIDADE`, `DS_GRAU_ESCOLARIDADE`, `CD_RACA_COR`, `DS_RACA_COR`, `CD_IDENTIDADE_GENERO`, `DS_IDENTIDADE_GENERO`, `CD_QUILOMBOLA`, `DS_QUILOMBOLA`, `CD_INTERPRETE_LIBRAS`, `DS_INTERPRETE_LIBRAS`, `QT_ELEITORES`, `QT_ELEITORES_BIOMETRIA`, `QT_ELEITORES_DEFICIENCIA`, `QT_ELEITORES_NOME_SOCIAL`.
+  2. `fact_eleitorado_perfil_munzona` (`perfil_eleitorado_2026.zip`, 27 colunas).
+  3. `dim_local_votacao_secao` (`eleitorado_local_votacao_2026.zip`, 41 colunas): cadastro geográfico completo de seções e locais de votação (`DS_ENDERECO`, `NM_BAIRRO`, `NR_CEP`, `NR_LATITUDE`, `NR_LONGITUDE`, `CD_TIPO_SECAO_AGREGADA`, `NR_SECAO_PRINCIPAL`, `QT_ELEITOR_SECAO`, etc.).
+  4. `fact_eleitorado_deficiencia` (`perfil_eleitor_deficiencia_2026.zip`, 30 colunas) e `fact_transferencia_temporaria_secao` (`transf_temporaria_secao_2026.zip`, 17 colunas) / `fact_transferencia_temporaria_mun` (`transferencia_temporaria_2026.zip`, 13 colunas).
+
+### 2.5. `fact_comparecimento_abstencao`, `fact_comparecimento_abstencao_pcd` e `fact_comparecimento_abstencao_tte`
+- **Fonte Primária:** `comparecimento_abstencao` (`comparecimento-e-abstencao-2026` — Sistema ELO, incorporado ao dataset público com schema 1:1 conforme Decisão D).
+- **Tabelas 1:1 dos CSVs de 2026:**
+  1. `fact_comparecimento_abstencao` (`perfil_comparecimento_abstencao_2026.zip`, 45 colunas): `DT_GERACAO`, `HH_GERACAO`, `ANO_ELEICAO`, `NR_TURNO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `CD_GENERO`, `DS_GENERO`, `CD_ESTADO_CIVIL`, `DS_ESTADO_CIVIL`, `CD_FAIXA_ETARIA`, `DS_FAIXA_ETARIA`, `CD_GRAU_INSTRUCAO`, `DS_GRAU_INSTRUCAO`, `CD_COR_RACA`, `DS_COR_RACA`, `CD_QUILOMBOLA`, `DS_QUILOMBOLA`, `CD_INTERPRETE_LIBRAS`, `DS_INTERPRETE_LIBRAS`, `CD_IDENTIDADE_GENERO`, `DS_IDENTIDADE_GENERO`, `CD_IDIOMA_INDIGENA`, `DS_IDIOMA_INDIGENA`, `CD_GRUPO_INDIGENA`, `DS_GRUPO_INDIGENA`, `CD_IDIOMA_QUILOMBOLA`, `DS_IDIOMA_QUILOMBOLA`, `QT_APTOS`, `QT_COMPARECIMENTO`, `QT_ABSTENCAO`, `QT_COMPARECIMENTO_DEFICIENCIA`, `QT_ABSTENCAO_DEFICIENCIA`, `QT_COMPARECIMENTO_TTE`, `QT_ABSTENCAO_TTE`, `QT_COMPAREC_FACULTATIVO`, `QT_ABST_FACULTATIVO`, `QT_COMPAREC_OBRIGATORIO`, `QT_ABST_OBRIGATORIO`, `QT_COMPAREC_DEFIC_FACULTATIVO`, `QT_ABST_DEFIC_FACULTATIVO`, `QT_COMPAREC_DEFIC_OBRIGATORIO`, `QT_ABST_DEFIC_OBRIGATORIO`.
+  2. `fact_comparecimento_abstencao_pcd` (`perfil_comparecimento_abstencao_eleitor_deficiente_2026.zip`, 20 colunas).
+  3. `fact_comparecimento_abstencao_tte` (`perfil_comparecimento_abstencao_eleitor_tte_2026.zip`, 25 colunas).
+
+### 2.6. `bridge_correspondencia_esperada` e `bridge_correspondencia_efetivada`
+- **Fonte Primária:** `correspondencias_esperadas_efetivadas` (1º e 2º turnos, validado contra `.sha512`).
+- **Tabelas 1:1 dos CSVs de 2026:**
+  1. `bridge_correspondencia_esperada` (`correspesp/CESP_{turn}t_{uf}_<DDMMYYYYHHMM>.zip`, 21 colunas): `DT_GERACAO`, `HH_GERACAO`, `AA_ELEICAO`, `CD_PLEITO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `NR_LOCAL_VOTACAO`, `NR_URNA_ESPERADA`, `CD_CARGA_URNA_ESPERADA`, `CD_FLASHCARD_URNA_ESPERADA`, `DT_CARGA_URNA_ESPERADA`, `ST_CORRESP_ALTERADA`, `NM_MAQUINA_GERACAO_MIDIA`, `NR_SRI_TPM_GERACAO_MIDIA`, `NR_SRI_INSTAL_GERACAO_MIDIA`, `NM_MAQUINA_TRANSM_CORRESP`, `NR_SRI_TPM_TRANSM_CORRESP`, `NR_SRI_INSTAL_TRANSM_CORRESP`.
+  2. `bridge_correspondencia_efetivada` (`correspefet/CEFT_{turn}t_{uf}_<DDMMYYYYHHMM>.zip`, 36 colunas): `DT_GERACAO` .. `AA_ELEICAO`, `DT_PLEITO`, `CD_PLEITO`, `SG_UF`, `CD_MUNICIPIO`, `NM_MUNICIPIO`, `NR_ZONA`, `NR_SECAO`, `NR_LOCAL_VOTACAO`, `SQ_CORRESPONDENCIA_ESPERADA`, `NR_URNA_ESPERADA`, `CD_CARGA_URNA_ESPERADA`, `CD_CARGA_1_URNA_ESPERADA`, `CD_CARGA_2_URNA_ESPERADA`, `CD_FLASHCARD_URNA_ESPERADA`, `DT_CARGA_URNA_ESPERADA`, `DT_RECBTO_URNA_ESPERADA`, `SQ_CORRESPONDENCIA_EFETIVADA`, `NR_URNA_EFETIVADA`, `CD_CARGA_URNA_EFETIVADA`, `CD_CARGA_1_URNA_EFETIVADA`, `CD_CARGA_2_URNA_EFETIVADA`, `CD_FLASHCARD_URNA_EFETIVADA`, `DT_CARGA_URNA_EFETIVADA`, `DT_RECBTO_URNA_EFETIVADA`, `CD_ORIGEM_VOTO`, `DS_ORIGEM_VOTO`, `TP_DIVERGENCIA`, etc.
 
 ---
 
-## 4. Política de Armazenamento Parquet e Particionamento
+## 3. Política de Armazenamento Parquet e Particionamento
 
-- **Formato Físico**: Apache Parquet com compressão **ZSTD** (nível 5 inicial, avaliado contra Snappy na Fase 5).
-- **Particionamento Permitido (`ALLOWED_PARTITION_KEYS`)**: Exclusivamente `("election_year", "turn", "uf")` ou `("turn", "uf")`.
-- **Particionamento Proibido (`FORBIDDEN_PARTITION_KEYS`)**: É estritamente proibido particionar por `section_num`, `urna_serial`, `municipio_code` ou `raw_timestamp`, prevenindo explosão de pequenos arquivos (small-files problem) e riscos de reidentificação indireta.
-
----
-
-## 5. Guardrails de Privacidade, Minimização e Qualidade
-
-1. **Zero PII e Zero Texto Livre**: NUNCA reter, persistir ou publicar CPF, título de eleitor, códigos de identificação de mesários, autenticadores de linha (`mac_code`) ou mensagens de log em texto livre fora da allowlist (`configs/event_catalog.yml`). Eventos não mapeados recebem `event_code = "UNKNOWN_EVENT"`.
-2. **Semântica de Ausência**: A ausência física de arquivo `.jez`, pacote ZIP ou correspondência é representada como `NULL` e `availability_status = "UNAVAILABLE"` — jamais como `0` ocorrências.
-3. **Ordem Canônica**: Em logs de urna, `file_seq` é a ordem canônica de gravação; oscilações de relógio em `raw_timestamp` são sinalizadas via `has_timestamp_regression = True` sem reordenar os eventos.
+- **Formato Físico:** Apache Parquet com compressão **ZSTD** (nível 5).
+- **Particionamento Permitido (`ALLOWED_PARTITION_KEYS`):** Exclusivamente `("election_year", "turn", "uf")` ou `("turn", "uf")`.
+- **Particionamento Proibido (`FORBIDDEN_PARTITION_KEYS`):** É proibido particionar por `section_num`, `urna_serial`, `municipio_code` ou `raw_timestamp`.

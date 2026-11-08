@@ -30,7 +30,13 @@ def test_load_source_catalog_contains_all_7_required_families(
         assert entry.source_id == source_id
         assert entry.title
         assert entry.ckan_dataset_slug
-        assert entry.url_template.startswith("https://cdn.tse.jus.br/")
+        assert entry.url_template.startswith(
+            (
+                "https://cdn.tse.jus.br/",
+                "https://www.tse.jus.br/",
+                "https://dadosabertos.tse.jus.br/",
+            )
+        )
         assert 2026 in entry.supported_years
         assert entry.native_grain
         assert entry.target_table
@@ -55,34 +61,51 @@ def test_url_resolution_for_2026_and_previous_elections(
     bu_2026 = catalog.resolve_url(
         "resultados_boletim_urna", election_year=2026, turn=1, uf="AC"
     )
-    assert "eleicoes2026" in bu_2026
-    assert "bweb_1t_AC_2026.zip" in bu_2026
+    assert "resultados-2026-boletim-de-urna" in bu_2026
+    assert "turn=1" in bu_2026 and "uf=AC" in bu_2026
+
+    doc_2026 = catalog.resolve_url("ecossistema_urna_log_docs", election_year=2026)
+    assert doc_2026 == (
+        "https://www.tse.jus.br/eleicoes/eleicoes-2026-content/arquivos/"
+        "log-do-ecossistema/@@display-file/file/log-do-ecossistema.pdf"
+    )
 
     tot_2022 = catalog.resolve_url(
         "totalizacao_arquivos_transmitidos", election_year=2022, turn=2, uf="SP"
     )
-    assert "eleicoes2022" in tot_2022
+    assert "eleicoes2022/arqurnatot/" in tot_2022
     assert "2022_2t_SP.zip" in tot_2022
 
     cfg = ExecutionConfig(election_year=2024, turn=1, uf="RJ")
     entry = catalog.get("correspondencias_esperadas_efetivadas")
-    assert "2024_1t_RJ.zip" in entry.resolve_for_config(cfg)
+    assert "resultados-2024-correspondencias-esperadas-e-efetivadas-1-turno" in (
+        entry.resolve_for_config(cfg)
+    )
     assert (
-        entry.resolve_ckan_slug(2026)
-        == "resultados-2026-correspondencias-esperadas-e-efetivadas"
+        entry.resolve_ckan_slug(2026, turn=1)
+        == "resultados-2026-correspondencias-esperadas-e-efetivadas-1-turno"
     )
 
 
-def test_comparecimento_abstencao_license_restriction_guard(
+def test_comparecimento_abstencao_license_and_redistribution_guard(
     catalog: SourceCatalog,
 ) -> None:
-    elo_entry = catalog.get("comparecimento_abstencao")
-    assert elo_entry.license_status == "unspecified_no_license"
-    assert elo_entry.redistribution_allowed is False
-    assert "Nenhuma Licença Fornecida" in elo_entry.license_notes
+    from dataclasses import replace
 
+    elo_entry = catalog.get("comparecimento_abstencao")
+    assert elo_entry.license_status == "open_documented"
+    assert elo_entry.redistribution_allowed is True
+    assert "Nenhuma Licença Fornecida" in elo_entry.license_notes
+    assert_redistribution_allowed(elo_entry)
+
+    # Verifica que o guarda bloqueia entradas marcadas com redistribution_allowed=False
+    restricted_entry = replace(
+        elo_entry,
+        license_status="unspecified_no_license",
+        redistribution_allowed=False,
+    )
     with pytest.raises(LicenseRestrictionError, match="comparecimento_abstencao"):
-        assert_redistribution_allowed(elo_entry)
+        assert_redistribution_allowed(restricted_entry)
 
     # Fontes com licença aberta documentada não devem ser bloqueadas
     bu_entry = catalog.get("resultados_boletim_urna")
@@ -116,26 +139,27 @@ def test_documentation_consistency_with_sources_catalog(
             entry.target_table in dictionary_doc
         ), f"target_table '{entry.target_table}' ausente em data_dictionary.md"
 
-    # Verifica presença explícita da restrição de licença do Sistema ELO e parametrização
-    assert "unspecified_no_license" in inventory_doc
+    # Verifica presença explícita da nota sobre licença do Sistema ELO e parametrização
     assert "Nenhuma Licença Fornecida" in inventory_doc
     assert "election_year" in inventory_doc
 
-    # Verifica presença de todas as tabelas fato, agregadas e dimensões no dicionário de dados
+    # Verifica presença de todas as tabelas 1:1 (fatos, pontes e dimensões) no dicionário de dados
     expected_tables = [
-        "fact_urna_event",
-        "fact_voting_session",
-        "agg_voting_session_metrics",
-        "fact_bu_record",
-        "fact_result_section",
-        "fact_electorate_profile",
-        "fact_turnout_profile",
-        "bridge_urna_section",
-        "dim_geography",
-        "dim_section",
-        "dim_time",
-        "dim_candidate",
-        "dim_party",
+        "fact_urna_logs",
+        "fact_boletim_urna",
+        "fact_votacao_secao",
+        "fact_detalhe_votacao_secao",
+        "fact_eleitorado_perfil_secao",
+        "fact_eleitorado_deficiencia",
+        "fact_transferencia_temporaria_secao",
+        "fact_comparecimento_abstencao",
+        "fact_comparecimento_abstencao_pcd",
+        "fact_comparecimento_abstencao_tte",
+        "bridge_correspondencia_esperada",
+        "bridge_correspondencia_efetivada",
+        "dim_local_votacao_secao",
+        "dim_candidato_munzona",
+        "dim_partido_munzona",
     ]
     for table_name in expected_tables:
         assert table_name in dictionary_doc, f"Tabela '{table_name}' ausente em data_dictionary.md"

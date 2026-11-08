@@ -106,13 +106,17 @@ class SourceEntry:
             uf=normalized_uf,
         )
 
-    def resolve_ckan_slug(self, election_year: int = DEFAULT_ELECTION_YEAR) -> str:
-        """Interpola o identificador de pacote CKAN para o ano eleitoral informado."""
+    def resolve_ckan_slug(
+        self,
+        election_year: int = DEFAULT_ELECTION_YEAR,
+        turn: int = 1,
+    ) -> str:
+        """Interpola o identificador de pacote CKAN para o ano eleitoral e turno informados."""
         if election_year not in self.supported_years:
             raise ValueError(
                 f"Ano eleitoral {election_year} não suportado pela fonte '{self.source_id}'."
             )
-        return self.ckan_dataset_slug.format(election_year=election_year)
+        return self.ckan_dataset_slug.format(election_year=election_year, turn=turn)
 
     def resolve_for_config(self, config: ExecutionConfig) -> str:
         """Resolve a URL da fonte a partir de uma instância de ExecutionConfig."""
@@ -218,14 +222,6 @@ def _validate_and_build_entry(source_key: str, raw: Any) -> SourceEntry:
         raise CatalogValidationError(
             f"Fonte '{source_id}' possui license_status='unspecified_no_license' "
             "e não pode permitir redistribuição bruta (redistribution_allowed deve ser false)."
-        )
-
-    if source_id == "comparecimento_abstencao" and (
-        license_status != "unspecified_no_license" or redistribution_allowed is not False
-    ):
-        raise CatalogValidationError(
-            "A fonte 'comparecimento_abstencao' (Sistema ELO) deve ter "
-            "license_status='unspecified_no_license' e redistribution_allowed=false."
         )
 
     if source_id == "totalizacao_arquivos_transmitidos":

@@ -19,7 +19,7 @@ from tse_analysis.inventory.catalog import SourceEntry
 MAX_HEADER_SAMPLE_BYTES: int = 65536  # 64 KiB
 
 CANONICAL_TO_TSE_COLUMNS: dict[str, tuple[str, ...]] = {
-    "election_year": ("ANO_ELEICAO",),
+    "election_year": ("ANO_ELEICAO", "AA_ELEICAO"),
     "turn": ("NR_TURNO",),
     "uf": ("SG_UF",),
     "municipio_code": ("CD_MUNICIPIO",),
@@ -29,7 +29,7 @@ CANONICAL_TO_TSE_COLUMNS: dict[str, tuple[str, ...]] = {
     "votavel_num": ("NR_VOTAVEL",),
     "gender_code": ("CD_GENERO",),
     "age_group_code": ("CD_FAIXA_ETARIA",),
-    "education_level_code": ("CD_GRAU_ESCOLARIDADE",),
+    "education_level_code": ("CD_GRAU_ESCOLARIDADE", "CD_GRAU_INSTRUCAO"),
     "urna_serial_expected": ("NR_URNA_ESPERADA",),
     "urna_serial_effective": ("NR_URNA_EFETIVADA",),
 }
