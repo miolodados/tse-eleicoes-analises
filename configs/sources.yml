@@ -10,7 +10,7 @@ sources:
     source_id: "totalizacao_arquivos_transmitidos"
     title: "Arquivos Transmitidos para Totalização"
     ckan_dataset_slug: "resultados-{election_year}-arquivos-transmitidos-para-totalizacao"
-    url_template: "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/arqtranstot/bu_imgbu_logjez_rdv_vscmr_{election_year}_{turn}t_{uf}.zip"
+    url_template: "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes{election_year}/arqurnatot/bu_imgbu_logjez_rdv_vscmr_{election_year}_{turn}t_{uf}.zip"
     supported_years: [2022, 2024, 2026]
     file_format: "zip_bundle"
     inner_artifacts: [".jez", ".bu", ".rdv", ".vscmr", ".imgbu"]

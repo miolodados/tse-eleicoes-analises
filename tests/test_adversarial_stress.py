@@ -15,8 +15,13 @@ from tse_analysis.logs.jez_reader import (
     SectionTurnContext,
     extract_jez_events,
     extract_section_bundle_events,
+    parse_section_keys_from_filename,
 )
-from tse_analysis.logs.line_parser import parse_log_line, parse_log_lines
+from tse_analysis.logs.line_parser import (
+    parse_log_line,
+    parse_log_lines,
+    sanitize_raw_log_line_for_preview,
+)
 from tse_analysis.logs.materializer import (
     FACT_URNA_EVENT_ARROW_SCHEMA,
     FACT_URNA_EVENT_POLARS_SCHEMA,
@@ -39,6 +44,20 @@ from tse_analysis.logs.materializer import (
         ("Voto confirmado para [Deputado Federal]", "CARGO_VOTE_RECORDED", None),
         ("Eleitor habilitado sem biometria", "MANUAL_ENABLE_PATH", None),
         ("Código de habilitação digitado pelo mesário", "MANUAL_ENABLE_PATH", None),
+        ("Capturada a digital. Tentativa [1] de [4]", "BIOMETRIC_READ_ATTEMPT", 1),
+        ("Tipo de habilitação do eleitor [biométrica]", "BIOMETRIC_RECOGNIZED", None),
+        (
+            "Timeout de reconhecimento do dedo. Tentativa [2] de [4]",
+            "BIOMETRIC_NOT_RECOGNIZED",
+            None,
+        ),
+        (
+            "Solicitação de dado pessoal do eleitor para habilitação manual",
+            "MANUAL_ENABLE_PATH",
+            None,
+        ),
+        ("Mesário 012345678901 habilitou o eleitor", "MANUAL_ENABLE_PATH", None),
+        ("Ano de nascimento digitado é igual ao do cadastro", "NO_BIOMETRIC_REGISTERED", None),
     ],
 )
 def test_adversarial_official_tse_guide_exact_messages(
@@ -108,6 +127,28 @@ def test_adversarial_millisecond_timestamps_and_5_field_system_lines() -> None:
     ev_sys = parse_log_line(line_no_app, file_seq=2)
     assert ev_sys.application == "SYSTEM"
     assert ev_sys.event_code == "LOGD_STARTED"
+
+    # Linha real 2026 com nível ALERTA e filename padrão o03220ac0101500020088-log.jez
+    line_alerta = (
+        "04/10/2026 06:03:40\tALERTA\t02263093\tVOTA\t"
+        "Identificador do eleitor digitado inválido\tA1B2C3D4E5F60718"
+    )
+    ev_alerta = parse_log_line(line_alerta, file_seq=3)
+    assert ev_alerta.log_level == "ALERTA"
+    assert ev_alerta.event_code == UNKNOWN_EVENT_CODE
+
+    preview = sanitize_raw_log_line_for_preview(
+        "04/10/2026 06:06:28\tINFO\t02263093\tVOTA\t"
+        "Biometria coletada não é do mesário 014429582429 (22251)\tA1B2C3D4E5F60718"
+    )
+    assert "<MAC_REDACTED>" in preview
+    assert "<ID_REDACTED>" in preview
+    assert "014429582429" not in preview
+    assert "A1B2C3D4E5F60718" not in preview
+
+    ctx = parse_section_keys_from_filename("o03220ac0101500020088-log.jez", election_year=2026)
+    assert ctx is not None
+    assert (ctx.uf, ctx.municipio_code, ctx.zone_num, ctx.section_num) == ("AC", 1015, 2, 88)
 
 
 def test_adversarial_nested_rotated_archives_inside_jez() -> None:

@@ -47,10 +47,10 @@ patterns:
   - pattern_id: "biometric_read_attempt_numbered"
     event_code: "BIOMETRIC_READ_ATTEMPT"
     applications: ["VOTA", "*"]
-    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:tentativa\\s+de\\s+(?:reconhecimento|leitura|identifica[cç][aã]o)\\s+biom[eé]tric[oa]|solicita(?:ndo)?\\s+digital[.:;]?\\s*tentativa|n[uú]mero\\s+de\\s+tentativas\\s+de\\s+reconhecimento\\s+do\\s+dedo)\\s*(?:n[uúº°.]*\\s*)?[:=\\-]?\\s*[\\[\\(]?(?P<biometric_attempt_num>\\d{1,3})[\\]\\)]?(?:\\b|$))"
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:tentativa\\s+de\\s+(?:reconhecimento|leitura|identifica[cç][aã]o)\\s+biom[eé]tric[oa]|solicita(?:ndo)?\\s+digital[.:;]?\\s*tentativa|capturada\\s+a\\s+digital[.:;]?\\s*tentativa|n[uú]mero\\s+de\\s+tentativas\\s+de\\s+reconhecimento\\s+do\\s+dedo(?:[.:;]?\\s*tentativa)?)\\s*(?:n[uúº°.]*\\s*)?[:=\\-]?\\s*[\\[\\(]?(?P<biometric_attempt_num>\\d{1,3})[\\]\\)]?(?:\\b|$))"
     extractors:
       biometric_attempt_num: "biometric_attempt_num"
-    description: "Tentativa numerada de leitura ou reconhecimento biométrico da digital do eleitor (incluindo formatos oficiais TSE 'Solicita digital. Tentativa [N]' e 'Número de tentativas de reconhecimento do dedo')."
+    description: "Tentativa numerada de leitura ou reconhecimento biométrico da digital do eleitor (incluindo formatos oficiais TSE 'Solicita digital. Tentativa [N]', 'Capturada a digital. Tentativa [N]' e 'Número de tentativas de reconhecimento do dedo')."
 
   - pattern_id: "biometric_read_attempt_generic"
     event_code: "BIOMETRIC_READ_ATTEMPT"
@@ -62,28 +62,28 @@ patterns:
   - pattern_id: "biometric_not_recognized_main"
     event_code: "BIOMETRIC_NOT_RECOGNIZED"
     applications: ["VOTA", "*"]
-    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?:digital|biometria|dedo)(?:\\s+do\\s+eleitor|\\s+capturad[oa])?\\s+n[aã]o\\s+(?:foi\\s+)?reconhecid[oa]|falha\\s+no\\s+reconhecimento\\s+biom[eé]trico|impress[aã]o\\s+digital\\s+n[aã]o\\s+confere))"
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?:digital|biometria|dedo)(?:\\s+do\\s+eleitor|\\s+capturad[oa])?\\s+n[aã]o\\s+(?:foi\\s+)?reconhecid[oa]|timeout\\s+de\\s+reconhecimento\\s+do\\s+dedo|falha\\s+no\\s+reconhecimento\\s+biom[eé]trico|impress[aã]o\\s+digital\\s+n[aã]o\\s+confere))"
     extractors: {}
-    description: "Falha ou não reconhecimento da impressão digital do eleitor na tentativa biométrica."
+    description: "Falha, timeout ou não reconhecimento da impressão digital do eleitor na tentativa biométrica."
 
   - pattern_id: "biometric_recognized_main"
     event_code: "BIOMETRIC_RECOGNIZED"
     applications: ["VOTA", "*"]
-    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?<!n[aã]o\\s)(?<!n[aã]o\\sfoi\\s)\\b(?:biometria|digital|dedo)(?:\\s+do\\s+eleitor)?\\s+reconhecid[oa]\\b|reconhecimento\\s+biom[eé]trico\\s+(?:efetuado\\s+com\\s+sucesso|positivo|ok)|identifica[cç][aã]o\\s+biom[eé]trica\\s+positiva|eleitor\\s+identificado\\s+por\\s+biometria))"
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente|autoteste|teste\\s+de\\s+sensor)\\b))(?:.*(?:(?<!n[aã]o\\s)(?<!n[aã]o\\sfoi\\s)\\b(?:biometria|digital|dedo)(?:\\s+do\\s+eleitor)?\\s+reconhecid[oa]\\b|tipo\\s+de\\s+habilita[cç][aã]o\\s+do\\s+eleitor\\s*\\[?biom[eé]trica\\]?|reconhecimento\\s+biom[eé]trico\\s+(?:efetuado\\s+com\\s+sucesso|positivo|ok)|identifica[cç][aã]o\\s+biom[eé]trica\\s+positiva|eleitor\\s+identificado\\s+por\\s+biometria))"
     extractors: {}
-    description: "Reconhecimento biométrico bem-sucedido da impressão digital do eleitor."
+    description: "Reconhecimento biométrico bem-sucedido da impressão digital do eleitor (incluindo 'Tipo de habilitação do eleitor [biométrica]')."
 
   - pattern_id: "no_biometric_registered_main"
     event_code: "NO_BIOMETRIC_REGISTERED"
     applications: ["VOTA", "*"]
-    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente)\\b))(?:.*(?:n[aã]o\\s+h[aá]\\s+biometria(?:\\s+cadastrada)?|eleitor\\s+(?:n[aã]o\\s+possui|sem)\\s+biometria(?:\\s+cadastrada)?|aus[eê]ncia\\s+de\\s+biometria\\s+no\\s+cadastro|habilita[cç][aã]o\\s+de\\s+eleitor\\s+sem\\s+biometria))"
+    regex: "(?i)^(?!(?:.*\\b(?:mes[aá]rio|presidente)\\b))(?:.*(?:n[aã]o\\s+h[aá]\\s+biometria(?:\\s+cadastrada)?|eleitor\\s+(?:n[aã]o\\s+possui|sem)\\s+biometria(?:\\s+cadastrada)?|aus[eê]ncia\\s+de\\s+biometria\\s+no\\s+cadastro|habilita[cç][aã]o\\s+de\\s+eleitor\\s+sem\\s+biometria|ano\\s+de\\s+nascimento\\s+digitado\\s+[eé]\\s+igual\\s+ao\\s+do\\s+cadastro))"
     extractors: {}
-    description: "Eleitor sem biometria cadastrada no banco de dados da seção."
+    description: "Eleitor sem biometria cadastrada no banco de dados da seção (incluindo habilitação por ano de nascimento)."
 
   - pattern_id: "manual_enable_path_main"
     event_code: "MANUAL_ENABLE_PATH"
     applications: ["VOTA", "*"]
-    regex: "(?i)(?:habilita[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|libera[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|eleitor\\s+habilitado\\s+(?:manualmente|sem\\s+biometria)|habilitado\\s+sem\\s+biometria\\s+ap[oó]s\\s+tentativas|identifica[cç][aã]o\\s+manual\\s+do\\s+eleitor|c[oó]digo\\s+de\\s+habilita[cç][aã]o\\s+digitado\\s+pelo\\s+mes[aá]rio)"
+    regex: "(?i)(?:habilita[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|libera[cç][aã]o\\s+manual(?:\\s+pelo\\s+mes[aá]rio)?|eleitor\\s+habilitado\\s+(?:manualmente|sem\\s+biometria)|habilitado\\s+sem\\s+biometria\\s+ap[oó]s\\s+tentativas|identifica[cç][aã]o\\s+manual\\s+do\\s+eleitor|c[oó]digo\\s+de\\s+habilita[cç][aã]o\\s+digitado\\s+pelo\\s+mes[aá]rio|solicita[cç][aã]o\\s+de\\s+dado\\s+pessoal\\s+do\\s+eleitor\\s+para\\s+habilita[cç][aã]o\\s+manual|mes[aá]rio\\s+\\d+\\s+habilitou\\s+o\\s+eleitor)"
     extractors: {}
     description: "Habilitação manual pelo mesário após tentativas biométricas malsucedidas."
 
@@ -139,6 +139,6 @@ patterns:
   - pattern_id: "section_closed_main"
     event_code: "SECTION_CLOSED"
     applications: ["VOTA", "GAP", "RED", "*"]
-    regex: "(?i)(?:encerramento\\s+da\\s+(?:vota[cç][aã]o|se[cç][aã]o)|vota[cç][aã]o\\s+encerrada|se[cç][aã]o\\s+encerrada|emiss[aã]o\\s+do\\s+boletim\\s+de\\s+urna)"
+    regex: "(?i)(?:encerramento\\s+da\\s+(?:vota[cç][aã]o|se[cç][aã]o)|vota[cç][aã]o\\s+encerrada|se[cç][aã]o\\s+encerrada|emiss[aã]o\\s+do\\s+boletim\\s+de\\s+urna|gerando\\s+arquivo\\s+de\\s+resultado\\s*\\[imgbu\\.dat\\]\\s*\\+\\s*\\[t[eé]rmino\\])"
     extractors: {}
     description: "Encerramento oficial da votação na seção eleitoral e emissão do BU."
