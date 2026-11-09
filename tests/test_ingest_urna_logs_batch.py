@@ -79,9 +79,42 @@ def test_schema_15_columns_and_source_config_definitions(nb03_ns: dict[str, Any]
     assert "mac_code" not in expected_columns
     assert "event_code" not in expected_columns
 
+    expected_all_ufs = [
+        "AC",
+        "AL",
+        "AM",
+        "AP",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MG",
+        "MS",
+        "MT",
+        "PA",
+        "PB",
+        "PE",
+        "PI",
+        "PR",
+        "RJ",
+        "RN",
+        "RO",
+        "RR",
+        "RS",
+        "SC",
+        "SE",
+        "SP",
+        "TO",
+        "ZZ",
+    ]
     assert nb03_ns["ELECTION_YEAR"] == 2026
     assert nb03_ns["TARGET_TURNS"] == [1, 2]
+    assert nb03_ns["ALL_UFS"] == expected_all_ufs
     assert len(nb03_ns["ALL_UFS"]) == 28
+    assert nb03_ns["TARGET_UFS"] == expected_all_ufs
+    assert len(nb03_ns["TARGET_UFS"]) == 28
     assert nb03_ns["REQUIRED_SITUACAO"] == "Totalizado"
     assert "log-do-ecossistema.pdf" in nb03_ns["LOG_DOCS_URL"]
 

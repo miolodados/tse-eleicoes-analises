@@ -41,6 +41,41 @@ def nb_ns(repo_root: Path) -> dict[str, Any]:
 def test_electoral_tables_catalog_17_tables_and_exact_column_counts(
     nb_ns: dict[str, Any],
 ) -> None:
+    expected_all_ufs = [
+        "AC",
+        "AL",
+        "AM",
+        "AP",
+        "BA",
+        "CE",
+        "DF",
+        "ES",
+        "GO",
+        "MA",
+        "MG",
+        "MS",
+        "MT",
+        "PA",
+        "PB",
+        "PE",
+        "PI",
+        "PR",
+        "RJ",
+        "RN",
+        "RO",
+        "RR",
+        "RS",
+        "SC",
+        "SE",
+        "SP",
+        "TO",
+        "ZZ",
+    ]
+    assert nb_ns["ALL_UFS"] == expected_all_ufs
+    assert len(nb_ns["ALL_UFS"]) == 28
+    assert nb_ns["TARGET_UFS"] == expected_all_ufs
+    assert len(nb_ns["TARGET_UFS"]) == 28
+
     catalog: dict[str, dict[str, Any]] = nb_ns["ELECTORAL_TABLES_CATALOG"]
     expected_counts = {
         "fact_boletim_urna": 45,
@@ -457,3 +492,122 @@ def test_comparecimento_abstencao_license_policy_in_catalog(repo_root: Path) -> 
     assert entry.license_status == "open_documented"
     assert entry.redistribution_allowed is True
     assert_redistribution_allowed(entry)
+
+
+def test_fact_votacao_secao_zz_maps_to_br_zip_url(
+    nb_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    """Garante que fact_votacao_secao usa votacao_secao_2026_BR.zip quando uf == 'ZZ'."""
+    ingest_single_table = nb_ns["ingest_single_table"]
+    spec = dict(nb_ns["ELECTORAL_TABLES_CATALOG"]["fact_votacao_secao"])
+    cols = [
+        "DT_GERACAO",
+        "HH_GERACAO",
+        "ANO_ELEICAO",
+        "CD_TIPO_ELEICAO",
+        "NM_TIPO_ELEICAO",
+        "NR_TURNO",
+        "CD_ELEICAO",
+        "DS_ELEICAO",
+        "DT_ELEICAO",
+        "TP_ABRANGENCIA",
+        "SG_UF",
+        "SG_UE",
+        "NM_UE",
+        "CD_MUNICIPIO",
+        "NM_MUNICIPIO",
+        "NR_ZONA",
+        "NR_SECAO",
+        "CD_CARGO",
+        "DS_CARGO",
+        "NR_VOTAVEL",
+        "NM_VOTAVEL",
+        "QT_VOTOS",
+        "NR_LOCAL_VOTACAO",
+        "SQ_CANDIDATO",
+        "NM_LOCAL_VOTACAO",
+        "DS_LOCAL_VOTACAO_ENDERECO",
+    ]
+    row = ";".join(
+        [
+            '"05/10/2026"',
+            '"14:00:00"',
+            "2026",
+            "2",
+            '"Eleição Ordinária"',
+            "1",
+            "626",
+            '"Eleição Presidencial 2026"',
+            '"04/10/2026"',
+            '"F"',
+            '"ZZ"',
+            '"ZZ"',
+            '"EXTERIOR"',
+            "99999",
+            '"LISBOA"',
+            "1",
+            "10",
+            "1",
+            '"Presidente"',
+            "13",
+            '"CANDIDATO"',
+            "120",
+            "101",
+            "280001",
+            '"EMBAIXADA"',
+            '"RUA X"',
+        ]
+    )
+    csv_bytes = (";".join(f'"{c}"' for c in cols) + "\n" + row + "\n").encode("latin1")
+    zip_path = tmp_path / "votacao_secao_2026_BR.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("votacao_secao_2026_BR.csv", csv_bytes)
+    zip_payload = zip_path.read_bytes()
+
+    requested_urls: list[str] = []
+
+    class _MockStream:
+        def __enter__(self) -> _MockStream:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def iter_bytes(self, chunk_size: int = 1024):
+            yield zip_payload
+
+    class _MockClient:
+        def stream(self, method: str, url: str) -> _MockStream:
+            requested_urls.append(url)
+            return _MockStream()
+
+        def close(self) -> None:
+            pass
+
+    staging_dir = tmp_path / "staging_zz"
+    exports_dir = tmp_path / "exports_zz"
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    summary = ingest_single_table(
+        table_name="fact_votacao_secao",
+        spec=spec,
+        election_year=2026,
+        turns=[1, 2],
+        target_ufs=["ZZ"],
+        staging_dir=staging_dir,
+        exports_dir=exports_dir,
+        manifest_path=manifest_path,
+        skip_existing=True,
+        force_refresh=False,
+        stream_range_max_bytes=None,
+        client=_MockClient(),
+    )
+    assert len(requested_urls) == 1
+    assert requested_urls[0].endswith("/votacao_secao_2026_BR.zip")
+    assert summary["column_count"] == 26
+    assert summary["parquet_row_count"] == 1
+    assert summary["head_df"].height == 1
+    assert summary["tail_df"].height == 1
+
