@@ -1,0 +1,13 @@
+{
+  "id": "daniellmattos/tse-analysis-02-ingest-electoral-tables",
+  "title": "TSE Analysis 02 Ingest Electoral Tables",
+  "code_file": "02_ingest_electoral_tables.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_internet": true,
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}
