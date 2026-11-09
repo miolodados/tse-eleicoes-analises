@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -139,13 +140,147 @@ def test_executed_notebook_outputs_contain_17_tables_head_tail_and_disk_sum(
         / "02_ingest_electoral_tables"
         / "02_ingest_electoral_tables.ipynb"
     )
-    nb_text = nb_path.read_text(encoding="utf-8")
+    nb_raw = nb_path.read_text(encoding="utf-8")
+    nb_data = json.loads(nb_raw)
+
+    # Garante ausência de prefixo proibido ou jargões internos em todo o notebook
+    forbidden_prefix = "bronze" + "_"
+    assert forbidden_prefix not in nb_raw
+    assert "Decisão A1" not in nb_raw
+
+    # Extrai exclusivamente o texto de stdout das células de código EFETIVAMENTE EXECUTADAS
+    code_cells = [c for c in nb_data["cells"] if c.get("cell_type") == "code"]
+    assert len(code_cells) >= 4
+    for cell in code_cells:
+        assert cell.get("execution_count") is not None, "Célula de código não executada!"
+
+    executed_stdout = "".join(
+        "".join(out.get("text", []))
+        for cell in code_cells
+        for out in cell.get("outputs", [])
+        if out.get("output_type") == "stream" and out.get("name") == "stdout"
+    )
+
     for table_name in nb_ns["ELECTORAL_TABLES_CATALOG"]:
-        assert f"--- {table_name} : HEAD(5) ---" in nb_text
-        assert f"--- {table_name} : TAIL(5) ---" in nb_text
-    assert "RELATÓRIO DE ARMAZENAMENTO PARQUET ZSTD POR ARQUIVO GERADO" in nb_text
-    assert "SOMA TOTAL EM DISCO (" in nb_text
-    assert "Auditoria concluída com 100% de sucesso" in nb_text
+        assert f"--- {table_name} : HEAD(5) ---" in executed_stdout
+        assert f"--- {table_name} : TAIL(5) ---" in executed_stdout
+
+    assert "RELATÓRIO DE ARMAZENAMENTO PARQUET ZSTD POR ARQUIVO GERADO" in executed_stdout
+
+    # Valida que cada arquivo Parquet individual teve seu tamanho em bytes e KB/MB impresso
+    file_regex = re.compile(
+        r"^\d+\.\s+(data/exports/\S+\.parquet)\s+\|\s+rows=([\d,]+)\s+\|\s+cols=(\d+)\s+\|\s+"
+        r"size=([\d,]+)\s+bytes\s+\(([\d.]+)\s+KB\s+/\s+([\d.]+)\s+MB\)$",
+        re.MULTILINE,
+    )
+    matches = file_regex.findall(executed_stdout)
+    assert len(matches) >= 17, f"Esperados >= 17 Parquets listados, encontrados {len(matches)}"
+
+    individual_sizes = [int(m[3].replace(",", "")) for m in matches]
+    assert all(sz > 0 for sz in individual_sizes)
+
+    # Valida que a SOMA TOTAL EM DISCO impressa bate com a soma dos arquivos individuais
+    sum_match = re.search(
+        r"SOMA TOTAL EM DISCO \(\d+ arquivos Parquet ZSTD, 17 tabelas\):\s+"
+        r"([\d,]+)\s+bytes\s+\(([\d,.]+)\s+KB\s+/\s+([\d.]+)\s+MB\)",
+        executed_stdout,
+    )
+    assert sum_match is not None, "Linha de SOMA TOTAL EM DISCO não encontrada no output executado"
+    printed_total_bytes = int(sum_match.group(1).replace(",", ""))
+    assert printed_total_bytes == sum(individual_sizes)
+    assert "Auditoria concluída com 100% de sucesso" in executed_stdout
+
+
+def test_adversarial_corrupted_sha512_aborts_ingestion_and_cleans_staging(
+    nb_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    """Stress test: SHA-512 adulterado aborta escrita, não suja manifesto e limpa staging."""
+    ingest_single_table = nb_ns["ingest_single_table"]
+    load_manifest = nb_ns["load_manifest"]
+
+    zip_path = tmp_path / "bweb_1t_AC_051020261403.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("bweb_1t_AC_051020261403.csv", b'"ANO_ELEICAO";"SG_UF"\n2026;"AC"\n')
+    zip_bytes = zip_path.read_bytes()
+    real_sha512 = hashlib.sha512(zip_bytes).hexdigest()
+    # Adultera o último caractere hexadecimal do digest SHA-512 oficial
+    corrupted_char = "0" if real_sha512[-1] != "0" else "f"
+    corrupted_sha512 = real_sha512[:-1] + corrupted_char
+    corrupted_sha_payload = f"{corrupted_sha512}  bweb_1t_AC_051020261403.zip\n".encode("latin1")
+
+    class _MockResp:
+        def __init__(self, payload: bytes | dict[str, Any]) -> None:
+            self._payload = payload
+
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            assert isinstance(self._payload, dict)
+            return self._payload
+
+        def __enter__(self) -> _MockResp:
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            pass
+
+        def iter_bytes(self, chunk_size: int = 1024):
+            assert isinstance(self._payload, bytes)
+            yield self._payload
+
+    class _TamperedCkanClient:
+        def get(self, url: str, headers: dict[str, str] | None = None) -> _MockResp:
+            return _MockResp(
+                {
+                    "success": True,
+                    "result": {
+                        "resources": [
+                            {
+                                "url": "https://cdn.tse.jus.br/estatistica/sead/eleicoes/eleicoes2026/buweb/bweb_1t_AC_051020261403.zip"
+                            }
+                        ]
+                    },
+                }
+            )
+
+        def stream(self, method: str, url: str) -> _MockResp:
+            if url.endswith(".sha512"):
+                return _MockResp(corrupted_sha_payload)
+            return _MockResp(zip_bytes)
+
+        def close(self) -> None:
+            pass
+
+    nb_ns["_CKAN_CACHE"].clear()
+    staging_dir = tmp_path / "staging_tampered"
+    exports_dir = tmp_path / "exports_tampered"
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    spec = dict(nb_ns["ELECTORAL_TABLES_CATALOG"]["fact_boletim_urna"])
+
+    with pytest.raises(ValueError, match="Divergência criptográfica SHA-512"):
+        ingest_single_table(
+            table_name="fact_boletim_urna",
+            spec=spec,
+            election_year=2026,
+            turns=[1],
+            target_ufs=["AC"],
+            staging_dir=staging_dir,
+            exports_dir=exports_dir,
+            manifest_path=manifest_path,
+            skip_existing=True,
+            force_refresh=False,
+            stream_range_max_bytes=None,
+            client=_TamperedCkanClient(),
+        )
+
+    assert list(staging_dir.glob("*")) == [], "Staging deve ser limpo mesmo após falha de SHA-512"
+    assert list(exports_dir.rglob("*.parquet")) == [], (
+        "Nenhum Parquet deve ser gravado com SHA-512 inválido"
+    )
+    assert list(exports_dir.rglob("*.tmp")) == [], "Nenhum arquivo .tmp órfão deve restar"
+    manifest = load_manifest(manifest_path)
+    assert manifest["partitions"] == {}
 
 
 def test_csv_to_parquet_reconciliation_idempotency_and_storage_report(
@@ -186,13 +321,20 @@ def test_csv_to_parquet_reconciliation_idempotency_and_storage_report(
         ),
     ]
     csv_bytes = (";".join(f'"{c}"' for c in cols) + "\n" + "\n".join(rows) + "\n").encode("latin1")
+    rr_row = (
+        '"08/11/2026";"06:30:09";2026;1;"Voto em Trânsito";"Federal";'
+        '"SP";"71072";"SÃO PAULO";"RR";"03018";"BOA VISTA";7'
+    )
+    rr_csv_bytes = (";".join(f'"{c}"' for c in cols) + "\n" + rr_row + "\n").encode("latin1")
 
     zip_path = tmp_path / "source_tte.zip"
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("transferencia_temporaria_2026_AC.csv", csv_bytes)
+        zf.writestr("transferencia_temporaria_2026_RR.csv", rr_csv_bytes)
+        # _BRASIL.csv com 20 linhas duplicadas para garantir que sua exclusão evita dupla contagem
         zf.writestr(
             "transferencia_temporaria_2026_BRASIL.csv",
-            csv_bytes + rows[0].encode("latin1") + b"\n",
+            csv_bytes + (rows[0].encode("latin1") + b"\n") * 20,
         )
 
     class _MockStreamResponse:
@@ -254,8 +396,10 @@ def test_csv_to_parquet_reconciliation_idempotency_and_storage_report(
 
     manifest = load_manifest(manifest_path)
     assert len(manifest["partitions"]) == 2
+    parquet_files_run1 = sorted(exports_dir.rglob("*.parquet"))
+    mtimes_run1 = {p: p.stat().st_mtime_ns for p in parquet_files_run1}
 
-    # Segunda execução idempotente (SKIP_EXISTING=True): não deve realizar novo download
+    # Segunda execução idempotente (SKIP_EXISTING=True): não baixa nem reescreve Parquets
     summary_2 = ingest_single_table(
         table_name="fact_transferencia_temporaria_mun",
         spec=spec,
@@ -272,13 +416,35 @@ def test_csv_to_parquet_reconciliation_idempotency_and_storage_report(
     )
     assert mock_client.download_calls == 1
     assert summary_2["parquet_row_count"] == 3
+    mtimes_run2 = {p: p.stat().st_mtime_ns for p in sorted(exports_dir.rglob("*.parquet"))}
+    assert mtimes_run1 == mtimes_run2, "Parquets não devem ser reescritos quando skip_existing=True"
+
+    # Terceira execução com target_ufs=["AC", "RR"]: preserva AC, adiciona RR e ignora _BRASIL.csv
+    summary_3 = ingest_single_table(
+        table_name="fact_transferencia_temporaria_mun",
+        spec=spec,
+        election_year=2026,
+        turns=[1, 2],
+        target_ufs=["AC", "RR"],
+        staging_dir=staging_dir,
+        exports_dir=exports_dir,
+        manifest_path=manifest_path,
+        skip_existing=True,
+        force_refresh=False,
+        stream_range_max_bytes=None,
+        client=mock_client,
+    )
+    assert mock_client.download_calls == 2
+    assert summary_3["parquet_row_count"] == 4
+    for p, mtime_ns in mtimes_run1.items():
+        assert p.stat().st_mtime_ns == mtime_ns, "Partições de AC não devem ser reescritas"
 
     # Verifica cálculo de tamanho por arquivo Parquet ZSTD e soma total
     files_report, total_bytes = compute_parquet_storage_report(exports_dir)
-    assert len(files_report) == 2
+    assert len(files_report) == 3
     assert total_bytes > 0
     assert total_bytes == sum(f["size_bytes"] for f in files_report)
-    assert sum(f["row_count"] for f in files_report) == 3
+    assert sum(f["row_count"] for f in files_report) == 4
     for f_info in files_report:
         assert f_info["column_count"] == 13
         assert f_info["size_bytes"] > 0
