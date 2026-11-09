@@ -326,7 +326,15 @@ def test_executed_notebook_03_outputs_head_tail_and_disk_sizes(
         / "03_ingest_urna_logs_batch"
         / "03_ingest_urna_logs_batch.ipynb"
     )
-    nb_data = json.loads(nb_path.read_text(encoding="utf-8"))
+    nb_raw = nb_path.read_text(encoding="utf-8")
+    nb_data = json.loads(nb_raw)
+
+    # Garante ausência de prefixo proibido ou jargões internos em todo o notebook
+    forbidden_prefix = "bronze" + "_"
+    assert forbidden_prefix not in nb_raw
+    assert "Decisão A1" not in nb_raw
+    assert "Decisão A2" not in nb_raw
+
     code_cells = [c for c in nb_data["cells"] if c.get("cell_type") == "code"]
     assert len(code_cells) >= 4
     for cell in code_cells:
@@ -360,6 +368,18 @@ def test_executed_notebook_03_outputs_head_tail_and_disk_sizes(
     individual_sizes = [int(m[3].replace(",", "")) for m in matches]
     assert all(sz > 0 for sz in individual_sizes)
 
+    urna_matches = [m for m in matches if "fact_urna_logs/" in m[0]]
+    assert len(urna_matches) == 2
+    urna_sizes = [int(m[3].replace(",", "")) for m in urna_matches]
+
+    subtotal_match = re.search(
+        r"SUBTOTAL EM DISCO fact_urna_logs \(\d+ arquivos Parquet ZSTD\):\s+"
+        r"([\d,]+)\s+bytes\s+\(([\d,.]+)\s+KB\s+/\s+([\d.]+)\s+MB\)",
+        executed_stdout,
+    )
+    assert subtotal_match is not None
+    assert int(subtotal_match.group(1).replace(",", "")) == sum(urna_sizes)
+
     sum_match = re.search(
         r"SOMA TOTAL EM DISCO \(\d+ arquivos Parquet ZSTD, \d+ tabelas\):\s+"
         r"([\d,]+)\s+bytes\s+\(([\d,.]+)\s+KB\s+/\s+([\d.]+)\s+MB\)",
@@ -371,3 +391,290 @@ def test_executed_notebook_03_outputs_head_tail_and_disk_sizes(
     printed_total_bytes = int(sum_match.group(1).replace(",", ""))
     assert printed_total_bytes == sum(individual_sizes)
     assert "Auditoria concluída com 100% de sucesso" in executed_stdout
+
+
+def test_adversarial_binary_absence_of_mac_code_and_unredacted_ids_in_parquet(
+    nb03_ns: dict[str, Any], repo_root: Path, tmp_path: Path
+) -> None:
+    """Stress test: valida ausência binária de mac_code e de IDs de 5+ dígitos no Parquet ZSTD."""
+    ingest_partition = nb03_ns["ingest_uf_turn_partition"]
+
+    secret_macs = [
+        "CAFEBABE11223344",
+        "DEADBEEF55667788",
+        "FACEFEED99AABBCC",
+        "0123456789ABCDEF",
+        "F0E1D2C3B4A59687",
+    ]
+    secret_ids_5plus = [
+        "12345",
+        "98765432100",
+        "014429582429",
+        "55566677788",
+        "99887766",
+    ]
+
+    # Inclui linhas de 6 campos, 7 campos (data\thora), 5 campos sem APP, multi-tab e linha truncada
+    adv_logd = (
+        f"04/10/2026 07:00:00\tINFO\t02263093\tLOGD\t"
+        f"Início com ID_5_DIGITOS {secret_ids_5plus[0]} e 4 dígitos 4321\t{secret_macs[0]}\r\n"
+        f"04/10/2026\t07:05:10,250\tINFO\t02263093\tVOTA\t"
+        f"CPF {secret_ids_5plus[1]} e Titulo_{secret_ids_5plus[2]}\t{secret_macs[1]}\r\n"
+        f"04/10/2026 07:10:00\tINFO\t02263093\t"
+        f"Linha de sistema 5 campos sem APP {secret_ids_5plus[3]}\t{secret_macs[2]}\n"
+        f"04/10/2026 07:15:00\tALERTA\t02263093\tVOTA\t"
+        f"Mensagem\tcom\ttab\tinterno\t{secret_ids_5plus[4]}\t{secret_macs[3]}\n"
+        f"04/10/2026 07:20:00\tERRO\tLinha truncada {secret_ids_5plus[0]}\t{secret_macs[4]}\n"
+    ).encode("latin1")
+
+    jez_payload = _build_synthetic_7z_jez({"logd.dat": adv_logd})
+    staging_dir = tmp_path / "staging"
+    exports_dir = tmp_path / "exports"
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    part_staging = staging_dir / "election_year=2026" / "turn=1" / "uf=AC"
+    part_staging.mkdir(parents=True, exist_ok=True)
+    local_zip = part_staging / "bu_imgbu_logjez_rdv_vscmr_2026_1t_AC.zip"
+    with zipfile.ZipFile(local_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("o03220ac0101500020088-log.jez", jez_payload)
+
+    res = ingest_partition(
+        election_year=2026,
+        turn=1,
+        uf="AC",
+        staging_dir=staging_dir,
+        exports_dir=exports_dir,
+        manifest_path=manifest_path,
+        max_jez_files=None,
+        skip_existing=False,
+        force_refresh=True,
+    )
+    out_pq = Path(res["parquet_path"])
+    raw_pq_bytes = out_pq.read_bytes()
+    df_pq = pl.read_parquet(out_pq)
+
+    assert b"mac_code" not in raw_pq_bytes
+    for mac in secret_macs:
+        assert mac.encode("utf-8") not in raw_pq_bytes
+        assert mac.encode("latin1") not in raw_pq_bytes
+        assert mac not in json.dumps(df_pq.to_dicts(), ensure_ascii=False)
+
+    for pii_num in secret_ids_5plus:
+        assert pii_num.encode("utf-8") not in raw_pq_bytes
+        assert pii_num.encode("latin1") not in raw_pq_bytes
+        assert pii_num not in json.dumps(df_pq["message_text"].to_list(), ensure_ascii=False)
+
+    for msg in df_pq["message_text"].to_list():
+        assert re.search(r"\b\d{5,}\b", msg) is None, f"Número de 5+ dígitos não mascarado: {msg}"
+
+    # Verifica também as partições reais geradas em data/exports/fact_urna_logs/
+    real_urna_dir = repo_root / "data" / "exports" / "fact_urna_logs"
+    if real_urna_dir.exists():
+        real_parquets = sorted(real_urna_dir.rglob("*.parquet"))
+        assert len(real_parquets) >= 2
+        for real_pq in real_parquets:
+            real_bytes = real_pq.read_bytes()
+            assert b"mac_code" not in real_bytes
+            real_df = pl.read_parquet(real_pq)
+            assert real_df.columns == nb03_ns["FACT_URNA_LOGS_COLUMNS"]
+            unredacted = [
+                m for m in real_df["message_text"].to_list() if re.search(r"\b\d{5,}\b", m)
+            ]
+            assert unredacted == []
+
+
+def test_adversarial_batch_idempotency_no_rewrite_no_row_duplication(
+    nb03_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    """Stress test: 2ª execução com skip_existing=True não reescreve nem duplica linhas."""
+    ingest_batch = nb03_ns["ingest_urna_logs_batch"]
+    load_manifest = nb03_ns["load_manifest"]
+
+    staging_dir = tmp_path / "staging"
+    exports_dir = tmp_path / "exports"
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+
+    for turn in (1, 2):
+        p_dir = staging_dir / "election_year=2026" / f"turn={turn}" / "uf=AC"
+        p_dir.mkdir(parents=True, exist_ok=True)
+        z_path = p_dir / f"bu_imgbu_logjez_rdv_vscmr_2026_{turn}t_AC.zip"
+        jez_bytes = _build_synthetic_7z_jez(
+            {
+                "logd.dat": (
+                    f"04/10/2026 08:00:00\tINFO\t02263093\tVOTA\t"
+                    f"Turno {turn} eleitor 12345678901\tAABBCCDDEEFF0011\n"
+                    f"04/10/2026 17:00:00\tINFO\t02263093\tVOTA\t"
+                    f"Encerramento turno {turn}\tAABBCCDDEEFF0022\n"
+                ).encode("latin1")
+            }
+        )
+        with zipfile.ZipFile(z_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(f"o0322{turn - 1}ac0101500020088-log.jez", jez_bytes)
+
+    batch_1 = ingest_batch(
+        election_year=2026,
+        turns=[1, 2],
+        target_ufs=["AC"],
+        staging_dir=staging_dir,
+        exports_dir=exports_dir,
+        manifest_path=manifest_path,
+        max_jez_files=5,
+        skip_existing=True,
+        force_refresh=False,
+    )
+    assert batch_1["processed_jez_count"] == 2
+    assert batch_1["target_jez_count"] == 2
+    assert batch_1["physical_logd_lines_count"] == 4
+    assert batch_1["parquet_row_count"] == 4
+    assert all(p["cached"] is False for p in batch_1["partitions"])
+
+    pq_files = sorted(exports_dir.rglob("*.parquet"))
+    assert len(pq_files) == 2
+    mtimes_before = {p: p.stat().st_mtime_ns for p in pq_files}
+    bytes_before = {p: p.read_bytes() for p in pq_files}
+
+    # Insere arquivo órfão em staging e usa cliente HTTP proibido de fazer chamadas de rede
+    staging_dir.mkdir(parents=True, exist_ok=True)
+    (staging_dir / "orphan_file.tmp").write_bytes(b"leftover")
+
+    class _ForbidNetworkClient:
+        def get(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("Nenhuma requisição HTTP deve ocorrer em cache hit idempotente!")
+
+        def head(self, *args: Any, **kwargs: Any) -> Any:
+            raise AssertionError("Nenhuma requisição HEAD deve ocorrer em cache hit idempotente!")
+
+        def close(self) -> None:
+            pass
+
+    batch_2 = ingest_batch(
+        election_year=2026,
+        turns=[1, 2],
+        target_ufs=["AC"],
+        staging_dir=staging_dir,
+        exports_dir=exports_dir,
+        manifest_path=manifest_path,
+        max_jez_files=5,
+        skip_existing=True,
+        force_refresh=False,
+        client=_ForbidNetworkClient(),
+    )
+    assert batch_2["processed_jez_count"] == 2
+    assert batch_2["target_jez_count"] == 2
+    assert batch_2["physical_logd_lines_count"] == 4
+    assert batch_2["parquet_row_count"] == 4
+    assert all(p["cached"] is True for p in batch_2["partitions"])
+    assert list(staging_dir.glob("*")) == []
+
+    for p in pq_files:
+        assert p.stat().st_mtime_ns == mtimes_before[p]
+        assert p.read_bytes() == bytes_before[p]
+        assert pl.read_parquet(p).height == 2
+
+    manifest = load_manifest(manifest_path)
+    assert manifest["tables_summary"]["fact_urna_logs"]["parquet_row_count"] == 4
+
+
+def test_adversarial_reconciliation_nested_rotations_and_corrupted_jez_rollback(
+    nb03_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    """Stress test: reconciliação estrita com aninhamento e rollback atômico se .jez corrompido."""
+    ingest_partition = nb03_ns["ingest_uf_turn_partition"]
+    load_manifest = nb03_ns["load_manifest"]
+
+    # 1) Testa múltiplos .jez com chunk_jez_size=1 e rotação aninhada
+    nested_rot_2 = _build_synthetic_zip_jez(
+        {
+            "logd.dat": (
+                b"04/10/2026 06:00:00\tINFO\t02263093\tLOGD\tRotacao 2 linha 1\tAA11223344556677\n"
+                b"\n"
+                b"04/10/2026 06:01:00\tINFO\t02263093\tLOGD\tRotacao 2 linha 2\tAA11223344556678\n"
+            )
+        }
+    )
+    nested_rot_1 = _build_synthetic_7z_jez(
+        {
+            "logd.dat": (
+                b"04/10/2026 07:00:00\tINFO\t02263093\tSCUE\tRotacao 1 linha 1\tBB11223344556677\n"
+            )
+        }
+    )
+    outer_jez_a = _build_synthetic_7z_jez(
+        {
+            "logd.dat": (
+                b"04/10/2026 08:00:00\tINFO\t02263093\tVOTA\tAtivo linha 1\tCC11223344556677\n"
+            ),
+            "logd.dat.1.jez": nested_rot_1,
+            "logd.dat.2.zip": nested_rot_2,
+        }
+    )
+    outer_jez_b = _build_synthetic_zip_jez(
+        {
+            "logd.dat": (
+                b"04/10/2026 08:10:00\tINFO\t02269999\tVOTA\tSecao 2 linha 1\tDD11223344556677\n"
+                b"04/10/2026 08:11:00\tINFO\t02269999\tVOTA\tSecao 2 linha 2\tDD11223344556678\n"
+            )
+        }
+    )
+
+    staging_ok = tmp_path / "staging_ok"
+    exports_ok = tmp_path / "exports_ok"
+    manifest_ok = exports_ok / "_checkpoints" / "manifest.json"
+    part_dir_ok = staging_ok / "election_year=2026" / "turn=1" / "uf=AC"
+    part_dir_ok.mkdir(parents=True, exist_ok=True)
+    zip_ok = part_dir_ok / "bu_imgbu_logjez_rdv_vscmr_2026_1t_AC.zip"
+    with zipfile.ZipFile(zip_ok, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("o03220ac0101500020001-log.jez", outer_jez_a)
+        zf.writestr("o03220ac0101500020002-log.jez", outer_jez_b)
+
+    res_ok = ingest_partition(
+        election_year=2026,
+        turn=1,
+        uf="AC",
+        staging_dir=staging_ok,
+        exports_dir=exports_ok,
+        manifest_path=manifest_ok,
+        max_jez_files=None,
+        skip_existing=False,
+        force_refresh=True,
+        chunk_jez_size=1,
+    )
+    assert res_ok["processed_jez_count"] == res_ok["target_jez_count"] == 2
+    assert res_ok["physical_logd_lines_count"] == res_ok["parquet_row_count"] == 6
+    df_ok = pl.read_parquet(res_ok["parquet_path"])
+    df_sec1 = df_ok.filter(pl.col("nr_secao") == 1)
+    assert df_sec1["file_seq"].to_list() == [1, 2, 3, 4]
+    assert df_sec1["source_log_member"].to_list() == [
+        "logd.dat.2",
+        "logd.dat.2",
+        "logd.dat.1",
+        "logd.dat",
+    ]
+
+    # 2) .jez com bytes corrompidos dentro do ZIP aborta escrita, limpa staging e não suja manifesto
+    staging_bad = tmp_path / "staging_bad"
+    exports_bad = tmp_path / "exports_bad"
+    manifest_bad = exports_bad / "_checkpoints" / "manifest.json"
+    part_dir_bad = staging_bad / "election_year=2026" / "turn=1" / "uf=RR"
+    part_dir_bad.mkdir(parents=True, exist_ok=True)
+    zip_bad = part_dir_bad / "bu_imgbu_logjez_rdv_vscmr_2026_1t_RR.zip"
+    with zipfile.ZipFile(zip_bad, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("o03220rr0301800010001-log.jez", b"INVALID_MAGIC_BYTES_CORRUPTED")
+
+    with pytest.raises(ValueError, match="Assinatura mágica desconhecida"):
+        ingest_partition(
+            election_year=2026,
+            turn=1,
+            uf="RR",
+            staging_dir=staging_bad,
+            exports_dir=exports_bad,
+            manifest_path=manifest_bad,
+            max_jez_files=None,
+            skip_existing=False,
+            force_refresh=True,
+        )
+
+    assert list(staging_bad.glob("*")) == []
+    assert list(exports_bad.rglob("*.parquet")) == []
+    assert list(exports_bad.rglob("*.tmp")) == []
+    assert load_manifest(manifest_bad)["partitions"] == {}
+
