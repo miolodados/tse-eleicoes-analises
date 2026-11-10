@@ -1,4 +1,4 @@
-# tse-analysis — Análise do Comportamento Eleitoral (Dados Públicos do TSE)
+# tse-eleicoes-analises — Análise do Comportamento Eleitoral (Dados Públicos do TSE)
 
 Base analítica reproduzível em Parquet sobre o comportamento eleitoral brasileiro a partir dos dados públicos do Portal de Dados Abertos do TSE, com foco inicial nas **Eleições 2026** e arquitetura parametrizável por `election_year` para expansão a pleitos anteriores (`2022`, `2024`).
 
