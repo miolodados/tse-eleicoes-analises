@@ -1,0 +1,17 @@
+{
+  "id": "daniellmattos/tse-analysis-04-dataset-integrity-and-release",
+  "title": "tse-analysis-04-dataset-integrity-and-release",
+  "code_file": "04_dataset_integrity_and_release.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": true,
+  "dataset_sources": [
+    "daniellmattos/tse-analysis-eleicoes-2026"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}
