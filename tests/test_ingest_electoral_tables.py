@@ -611,3 +611,53 @@ def test_fact_votacao_secao_zz_maps_to_br_zip_url(
     assert summary["head_df"].height == 1
     assert summary["tail_df"].height == 1
 
+
+
+def test_national_table_cache_requires_all_source_observed_turn_uf_pairs(
+    nb_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    get_pairs = nb_ns["get_national_source_pairs"]
+    cache_complete = nb_ns["is_national_table_cache_complete"]
+    table = "dim_partido_munzona"
+    parquet_path = tmp_path / "part-0.parquet"
+    parquet_path.write_bytes(b"fixture")
+
+    manifest = {
+        "source_coverage": {
+            table: [
+                {"turn": 1, "uf": "AC", "row_count": 10},
+                {"turn": 2, "uf": "AC", "row_count": 2},
+                {"turn": 1, "uf": "SP", "row_count": 20},
+            ]
+        },
+        "partitions": {
+            f"{table}/election_year=2026/turn=1/uf=AC": {
+                "table_name": table, "election_year": 2026, "turn": 1,
+                "uf": "AC", "status": "completed", "parquet_path": str(parquet_path),
+            },
+            f"{table}/election_year=2026/turn=1/uf=SP": {
+                "table_name": table, "election_year": 2026, "turn": 1,
+                "uf": "SP", "status": "completed", "parquet_path": str(parquet_path),
+            },
+        },
+    }
+
+    assert get_pairs(manifest, table) == {(1, "AC"), (2, "AC"), (1, "SP")}
+    assert cache_complete(table, 2026, manifest, tmp_path) is False
+
+    manifest["partitions"][f"{table}/election_year=2026/turn=2/uf=AC"] = {
+        "table_name": table, "election_year": 2026, "turn": 2,
+        "uf": "AC", "status": "completed", "parquet_path": str(parquet_path),
+    }
+    assert cache_complete(table, 2026, manifest, tmp_path) is True
+
+
+def test_national_table_cache_rejects_legacy_manifest_without_source_coverage(
+    nb_ns: dict[str, Any], tmp_path: Path
+) -> None:
+    assert nb_ns["is_national_table_cache_complete"](
+        "dim_partido_munzona",
+        2026,
+        {"partitions": {}},
+        tmp_path,
+    ) is False
