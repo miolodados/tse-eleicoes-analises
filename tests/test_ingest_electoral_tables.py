@@ -630,6 +630,9 @@ def test_national_table_cache_requires_all_source_observed_turn_uf_pairs(
                 {"turn": 1, "uf": "SP", "row_count": 20},
             ]
         },
+        "source_coverage_scope": {
+            table: {"election_year": 2026, "target_ufs": ["AC", "SP"], "turns": [1, 2]}
+        },
         "partitions": {
             f"{table}/election_year=2026/turn=1/uf=AC": {
                 "table_name": table, "election_year": 2026, "turn": 1,
