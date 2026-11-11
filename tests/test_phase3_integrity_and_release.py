@@ -286,6 +286,17 @@ def _build_18_table_fixture(base_dir: Path) -> Path:
                 "source_coverage": {
                     "dim_partido_munzona": [{"turn": 1, "uf": "AC", "row_count": 1}]
                 },
+                "source_coverage_scope": {
+                    "dim_partido_munzona": {
+                        "election_year": 2026,
+                        "target_ufs": [
+                            "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
+                            "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
+                            "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ"
+                        ],
+                        "turns": [1, 2]
+                    }
+                },
             },
             indent=2,
         ),
