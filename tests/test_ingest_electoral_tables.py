@@ -643,13 +643,13 @@ def test_national_table_cache_requires_all_source_observed_turn_uf_pairs(
     }
 
     assert get_pairs(manifest, table) == {(1, "AC"), (2, "AC"), (1, "SP")}
-    assert cache_complete(table, 2026, manifest, tmp_path) is False
+    assert cache_complete(table, 2026, manifest, tmp_path, ["AC", "SP"], [1, 2]) is False
 
     manifest["partitions"][f"{table}/election_year=2026/turn=2/uf=AC"] = {
         "table_name": table, "election_year": 2026, "turn": 2,
         "uf": "AC", "status": "completed", "parquet_path": str(parquet_path),
     }
-    assert cache_complete(table, 2026, manifest, tmp_path) is True
+    assert cache_complete(table, 2026, manifest, tmp_path, ["AC", "SP"], [1, 2]) is True
 
 
 def test_national_table_cache_rejects_legacy_manifest_without_source_coverage(
@@ -660,4 +660,6 @@ def test_national_table_cache_rejects_legacy_manifest_without_source_coverage(
         2026,
         {"partitions": {}},
         tmp_path,
+        ["AC", "SP"],
+        [1, 2],
     ) is False
