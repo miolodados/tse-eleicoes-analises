@@ -279,7 +279,27 @@ def _build_18_table_fixture(base_dir: Path) -> Path:
     ckpt_dir = exports_dir / "_checkpoints"
     ckpt_dir.mkdir(parents=True, exist_ok=True)
     (ckpt_dir / "manifest.json").write_text(
-        json.dumps({"version": "1.0.0", "partitions": manifest_partitions}, indent=2),
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "partitions": manifest_partitions,
+                "source_coverage": {
+                    "dim_partido_munzona": [{"turn": 1, "uf": "AC", "row_count": 1}]
+                },
+                "source_coverage_scope": {
+                    "dim_partido_munzona": {
+                        "election_year": 2026,
+                        "target_ufs": [
+                            "AC", "AL", "AM", "AP", "BA", "CE", "DF", "ES", "GO", "MA",
+                            "MG", "MS", "MT", "PA", "PB", "PE", "PI", "PR", "RJ", "RN",
+                            "RO", "RR", "RS", "SC", "SE", "SP", "TO", "ZZ"
+                        ],
+                        "turns": [1, 2]
+                    }
+                },
+            },
+            indent=2,
+        ),
         encoding="utf-8",
     )
     return exports_dir
@@ -401,3 +421,35 @@ def test_full_phase3_pipeline_and_package_readiness(tmp_path: Path) -> None:
     assert report["release_package_readiness"]["ready_for_manual_publish"] is True
     assert (exports_dir / "dataset-metadata.json").exists()
     assert (exports_dir / "integrity_audit_report.json").exists()
+
+
+def test_party_dimension_source_coverage_is_audited(tmp_path: Path) -> None:
+    exports_dir = _build_18_table_fixture(tmp_path)
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+
+    passed = audit_partitions_and_manifest(exports_dir, strict=True)
+    assert passed["source_coverage_missing"] == []
+    assert passed["missing_source_coverage_partitions"] == []
+    assert passed["source_coverage_row_count_mismatches"] == []
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_coverage"]["dim_partido_munzona"].append(
+        {"turn": 2, "uf": "AC", "row_count": 3}
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="missing_source_coverage_partitions"):
+        audit_partitions_and_manifest(exports_dir, strict=True)
+
+
+def test_party_dimension_audit_rejects_legacy_manifest_without_source_coverage(
+    tmp_path: Path,
+) -> None:
+    exports_dir = _build_18_table_fixture(tmp_path)
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest.pop("source_coverage", None)
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="source_coverage_missing"):
+        audit_partitions_and_manifest(exports_dir, strict=True)
