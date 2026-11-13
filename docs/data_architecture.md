@@ -86,7 +86,7 @@ Toda tabela Gold deve documentar pergunta atendida, grão, definição das métr
 A organização abaixo é uma proposta lógica para os artefatos publicados. O formato físico final e a estrutura de diretórios podem ser ajustados conforme limites e convenções do Kaggle, sem alterar a separação conceitual das camadas.
 
 ```text
-tse-analises-eleicoes/
+tse-eleicoes-dados/
 ├── bronze/
 │   ├── fact_urna_logs/
 │   └── ...
@@ -100,6 +100,12 @@ tse-analises-eleicoes/
 ```
 
 Cada publicação deve permitir identificar a camada, tabela, parâmetros e versão. O manifesto deve relacionar os artefatos de saída às fontes e versões de entrada, ao código executado e às regras aplicadas.
+
+### Identidade do dataset publicado
+
+O identificador canônico do dataset no Kaggle deve acompanhar o nome do repositório: **`miolodados/tse-eleicoes-dados`**. O identificador legado `miolodados/tse-analises-eleicoes` deve ser tratado apenas como referência histórica durante a migração, não como destino de novas publicações.
+
+A migração do identificador deve ser coordenada com a atualização de notebooks, configurações, documentação, comandos Kaggle CLI e consumidores externos. A issue de release deve validar a publicação e o consumo pelo identificador novo antes de considerar a migração concluída.
 
 ## 6. Fluxo operacional: GitHub → Kaggle → Kaggle Dataset
 
