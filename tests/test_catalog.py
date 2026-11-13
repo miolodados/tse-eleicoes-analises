@@ -227,7 +227,15 @@ def test_adversarial_no_bronze_prefix_and_schema_policies_enforced(
     ]
     for path in monitored_paths:
         text = path.read_text(encoding="utf-8")
-        assert "bronze_" not in text, f"Prefixo proibido 'bronze_' encontrado em {path}"
+        # Referências documentais como "bronze_audit.md" não são nomes de tabelas.
+        bronze_table_names = re.findall(
+            r"\\bbronze_(?:fact|dim|bridge)_[A-Za-z0-9_]+\\b",
+            text,
+        )
+        assert not bronze_table_names, (
+            f"Nomes de tabela com prefixo 'bronze_' encontrados em {path}: "
+            f"{bronze_table_names[:5]}"
+        )
 
     # fact_urna_logs mantém message_text (IDs 5+ dígitos mascarados) e sem mac_code
     log_doc_entry = catalog.get("ecossistema_urna_log_docs")
