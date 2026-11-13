@@ -7,6 +7,8 @@ Todas as tabelas refletem **fielmente o formato original da fonte (1:1)** em **P
 - **Tabelas Tabulares e Dimensões:** Mantêm 100% dos arquivos e colunas originais dos CSVs de 2026 do TSE, aproveitando o *dictionary encoding* nativo do Parquet ZSTD para comprimir colunas descritivas repetidas sem perda de fidelidade à fonte.
 - **Comparecimento e Abstenção (`fact_comparecimento_abstencao`):** Incorporada integralmente ao dataset público no schema 1:1 (`redistribution_allowed: true`), considerando a ausência de `license_id` no metadado CKAN como omissão formal do portal para dados públicos abertos do TSE.
 
+> **Como interpretar este dicionário:** a presença de uma tabela e de seu schema neste documento descreve o contrato/inventário conhecido, mas não comprova, isoladamente, que exista um artefato publicado no Kaggle. Para evitar essa ambiguidade, acompanhe separadamente (1) contrato documentado, (2) implementação/testes no GitHub, (3) execução concluída no Kaggle e (4) publicação em uma versão identificável do dataset. A auditoria estática disponível em [bronze_audit.md](bronze_audit.md) registra limitações de evidência operacional; ela não substitui a verificação de uma versão publicada.
+
 ---
 
 ## 1. Chaves Naturais de Contexto (`SECTION_TURN_KEY_SCHEMA`)
