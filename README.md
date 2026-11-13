@@ -32,7 +32,7 @@ O identificador canônico para consumo e publicação é **`miolodados/tse-eleic
 
 ## Fontes, atribuição e privacidade
 
-As fontes utilizadas são dados públicos disponibilizados pelo TSE. O catálogo `configs/sources.yml` registra a situação de licença e a autorização de redistribuição por fonte; as entradas atualmente utilizadas estão marcadas com `redistribution_allowed: true), inclusive Comparecimento e Abstenção do Sistema ELO.
+As fontes utilizadas são dados públicos disponibilizados pelo TSE. O catálogo `configs/sources.yml` registra a situação de licença e a autorização de redistribuição por fonte; as entradas atualmente utilizadas estão marcadas com `redistribution_allowed: true`, inclusive Comparecimento e Abstenção do Sistema ELO.
 
 A atribuição às fontes oficiais e a proveniência são preservadas. Salvaguardas de privacidade aplicáveis à ingestão, como mascaramento de identificadores em mensagens e omissão de campos de autenticação, são documentadas nos contratos correspondentes.
 
