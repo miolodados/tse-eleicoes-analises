@@ -9,7 +9,7 @@ O projeto adota uma estrutura modular em Python 3.11+ fundamentada em **Polars**
 - **Unidade Central de Análise**: `section_turn` (`election_year`, `turn`, `uf`, `municipio_code`, `zone_num`, `section_num`).
 - **Camada Granular de Urna**: Eventos brutos de log (`fact_urna_event`), sessões de votação reconstruídas via máquina de estados (`fact_voting_session`) e métricas agregadas (`agg_voting_session_metrics`).
 - **Camada Eleitoral e Demográfica**: Boletim de Urna (`fact_bu_record`), apuração por seção (`fact_result_section`), perfil do eleitorado (`fact_electorate_profile`), comparecimento/abstenção (`fact_turnout_profile`) e correspondências (`bridge_urna_section`).
-- **Governança de Licenças e Privacidade**: Rastreamento explícito de licença por fonte em `configs/sources.yml` (incluindo trava programática `redistribution_allowed: false` para dados brutos de Comparecimento e Abstenção do Sistema ELO) e minimização estrita (zero retenção de CPF, título eleitoral, texto livre bruto ou autenticadores).
+- **Governança de Licenças e Privacidade**: As fontes utilizadas são dados públicos disponibilizados pelo TSE. O catálogo `configs/sources.yml` registra a situação de licença e a autorização de redistribuição por fonte; as entradas atualmente utilizadas estão marcadas com `redistribution_allowed: true`, inclusive Comparecimento e Abstenção do Sistema ELO. Mantemos a atribuição às fontes oficiais e a minimização estrita de dados (zero retenção de CPF, título eleitoral, texto livre bruto ou autenticadores).
 
 ## Estrutura do Repositório
 
