@@ -453,3 +453,31 @@ def test_party_dimension_audit_rejects_legacy_manifest_without_source_coverage(
 
     with pytest.raises(ValueError, match="source_coverage_missing"):
         audit_partitions_and_manifest(exports_dir, strict=True)
+
+def test_party_dimension_source_coverage_rejects_entries_outside_declared_scope(
+    tmp_path: Path,
+) -> None:
+    exports_dir = _build_18_table_fixture(tmp_path)
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_coverage"]["dim_partido_munzona"].append(
+        {"turn": 3, "uf": "AC", "row_count": 1}
+    )
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="entry_outside_scope"):
+        audit_partitions_and_manifest(exports_dir, strict=True)
+
+
+def test_party_dimension_source_coverage_rejects_invalid_scope_values(
+    tmp_path: Path,
+) -> None:
+    exports_dir = _build_18_table_fixture(tmp_path)
+    manifest_path = exports_dir / "_checkpoints" / "manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["source_coverage_scope"]["dim_partido_munzona"]["target_ufs"].append("BR")
+    manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="invalid_scope_values"):
+        audit_partitions_and_manifest(exports_dir, strict=True)
+
