@@ -229,7 +229,7 @@ def test_adversarial_no_bronze_prefix_and_schema_policies_enforced(
         text = path.read_text(encoding="utf-8")
         # Referências documentais como "bronze_audit.md" não são nomes de tabelas.
         bronze_table_names = re.findall(
-            r"\\bbronze_(?:fact|dim|bridge)_[A-Za-z0-9_]+\\b",
+            r"\bbronze_(?:fact|dim|bridge)_[A-Za-z0-9_]+\b",
             text,
         )
         assert not bronze_table_names, (
