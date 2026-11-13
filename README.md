@@ -26,6 +26,10 @@ O status de implementação de cada tabela deve ser consultado no [dicionário d
 
 Não existe etapa local ou em CI que produza os artefatos oficiais do dataset. Consulte [docs/data_architecture.md](docs/data_architecture.md) para os contratos e o fluxo operacional.
 
+## Dataset no Kaggle
+
+O identificador canônico para consumo e publicação é **`miolodados/tse-eleicoes-dados`**, alinhado ao nome deste repositório. O identificador legado `miolodados/tse-analises-eleicoes` será substituído de forma coordenada no processo de release. Novos notebooks, configurações, instruções e consumidores devem usar o identificador canônico.
+
 ## Fontes, atribuição e privacidade
 
 As fontes utilizadas são dados públicos disponibilizados pelo TSE. O catálogo `configs/sources.yml` registra a situação de licença e a autorização de redistribuição por fonte; as entradas atualmente utilizadas estão marcadas com `redistribution_allowed: true), inclusive Comparecimento e Abstenção do Sistema ELO.
